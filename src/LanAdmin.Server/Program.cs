@@ -2,11 +2,23 @@ using System.Net.WebSockets;
 using System.Text;
 using System.Text.Json;
 using LanAdmin.Contracts;
+using LanAdmin.Server.Diagnostics;
 using LanAdmin.Server;
 using LanAdmin.Server.Data;
 using LanAdmin.Server.Services;
+using Microsoft.Extensions.Logging;
 
 var builder = WebApplication.CreateBuilder(args);
+var fileLoggerOptions = builder.Configuration.GetSection("FileLogging").Get<FileLoggerOptions>() ?? new FileLoggerOptions();
+
+builder.Host.UseWindowsService(options =>
+{
+    options.ServiceName = "LanAdmin Server";
+});
+
+builder.Logging.ClearProviders();
+builder.Logging.AddConsole();
+builder.Logging.AddProvider(new FileLoggerProvider(fileLoggerOptions));
 
 builder.Services.Configure<DatabaseOptions>(builder.Configuration.GetSection("Database"));
 builder.Services.Configure<AgentOptions>(builder.Configuration.GetSection("Agent"));
