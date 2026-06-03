@@ -44,3 +44,5 @@ public sealed record CreateGroupRequest(string Name);
 public sealed record RenameGroupRequest(string Name);
 
 public sealed record AssignGroupRequest(long? GroupId);
+
+public sealed record BatchAssignGroupRequest(IReadOnlyList<string> AgentIds, long? GroupId);

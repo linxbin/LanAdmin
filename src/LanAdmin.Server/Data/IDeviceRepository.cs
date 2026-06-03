@@ -14,6 +14,7 @@ public interface IDeviceRepository
     Task<DeviceGroupDto?> RenameGroupAsync(long groupId, string name, CancellationToken cancellationToken);
     Task<bool> DeleteGroupAsync(long groupId, CancellationToken cancellationToken);
     Task<bool> AssignGroupAsync(string agentId, long? groupId, CancellationToken cancellationToken);
+    Task<int> AssignGroupsAsync(IReadOnlyList<string> agentIds, long? groupId, CancellationToken cancellationToken);
     Task<bool> DeleteDeviceAsync(string agentId, CancellationToken cancellationToken);
     Task<int> MarkOfflineDevicesAsync(DateTimeOffset threshold, CancellationToken cancellationToken);
 }

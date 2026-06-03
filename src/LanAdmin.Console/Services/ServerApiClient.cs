@@ -70,6 +70,13 @@ public sealed class ServerApiClient
         response.EnsureSuccessStatusCode();
     }
 
+    public async Task AssignGroupsAsync(IReadOnlyList<string> agentIds, long? groupId)
+    {
+        var payload = JsonSerializer.Serialize(new BatchAssignGroupRequest(agentIds, groupId), _jsonOptions);
+        using var response = await _httpClient.PostAsync("/api/devices/assign-group-batch", new StringContent(payload, Encoding.UTF8, "application/json"));
+        response.EnsureSuccessStatusCode();
+    }
+
     public async Task DeleteDeviceAsync(string agentId)
     {
         using var response = await _httpClient.DeleteAsync($"/api/devices/{Uri.EscapeDataString(agentId)}");

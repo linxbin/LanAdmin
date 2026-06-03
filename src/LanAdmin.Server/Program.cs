@@ -104,6 +104,17 @@ app.MapPost("/api/devices/{agentId}/assign-group", async (string agentId, Assign
     return updated ? Results.Ok() : Results.NotFound();
 });
 
+app.MapPost("/api/devices/assign-group-batch", async (BatchAssignGroupRequest request, IDeviceRepository repository, CancellationToken cancellationToken) =>
+{
+    if (request.AgentIds is null || request.AgentIds.Count == 0)
+    {
+        return Results.BadRequest("At least one device must be selected.");
+    }
+
+    var updated = await repository.AssignGroupsAsync(request.AgentIds, request.GroupId, cancellationToken);
+    return Results.Ok(new { updated });
+});
+
 app.MapDelete("/api/devices/{agentId}", async (string agentId, IDeviceRepository repository, CancellationToken cancellationToken) =>
 {
     var deleted = await repository.DeleteDeviceAsync(agentId, cancellationToken);

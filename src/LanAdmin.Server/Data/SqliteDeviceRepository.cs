@@ -6,6 +6,7 @@ namespace LanAdmin.Server.Data;
 
 public sealed class SqliteDeviceRepository : IDeviceRepository
 {
+    private static readonly char[] InvalidGroupNameCharacters = ['\\', '/', ':', '*', '?', '"', '<', '>', '|'];
     private readonly string _connectionString;
 
     public SqliteDeviceRepository(IOptions<DatabaseOptions> databaseOptions)
@@ -276,6 +277,8 @@ public sealed class SqliteDeviceRepository : IDeviceRepository
 
     public async Task<DeviceGroupDto> CreateGroupAsync(string name, CancellationToken cancellationToken)
     {
+        name = NormalizeAndValidateGroupName(name);
+
         if (await GroupNameExistsAsync(name, excludeGroupId: null, cancellationToken))
         {
             throw new InvalidOperationException($"Group '{name}' already exists.");
@@ -300,6 +303,8 @@ public sealed class SqliteDeviceRepository : IDeviceRepository
 
     public async Task<DeviceGroupDto?> RenameGroupAsync(long groupId, string name, CancellationToken cancellationToken)
     {
+        name = NormalizeAndValidateGroupName(name);
+
         if (await GroupNameExistsAsync(name, groupId, cancellationToken))
         {
             throw new InvalidOperationException($"Group '{name}' already exists.");
@@ -445,6 +450,70 @@ public sealed class SqliteDeviceRepository : IDeviceRepository
         return true;
     }
 
+    public async Task<int> AssignGroupsAsync(IReadOnlyList<string> agentIds, long? groupId, CancellationToken cancellationToken)
+    {
+        var normalizedAgentIds = agentIds
+            .Where(agentId => !string.IsNullOrWhiteSpace(agentId))
+            .Select(agentId => agentId.Trim())
+            .Distinct(StringComparer.OrdinalIgnoreCase)
+            .ToList();
+
+        if (normalizedAgentIds.Count == 0)
+        {
+            return 0;
+        }
+
+        await using var connection = await OpenConnectionAsync(cancellationToken);
+        await using var transaction = (SqliteTransaction)await connection.BeginTransactionAsync(cancellationToken);
+
+        string? groupName = null;
+        if (groupId.HasValue)
+        {
+            await using var groupCommand = connection.CreateCommand();
+            groupCommand.Transaction = transaction;
+            groupCommand.CommandText = "SELECT Name FROM DeviceGroups WHERE Id = $id;";
+            groupCommand.Parameters.AddWithValue("$id", groupId.Value);
+            groupName = (string?)await groupCommand.ExecuteScalarAsync(cancellationToken);
+            if (groupName is null)
+            {
+                await transaction.RollbackAsync(cancellationToken);
+                return 0;
+            }
+        }
+
+        var updatedCount = 0;
+        foreach (var agentId in normalizedAgentIds)
+        {
+            var existing = await GetDeviceRecordByAgentIdAsync(connection, transaction, agentId, cancellationToken);
+            if (existing is null)
+            {
+                continue;
+            }
+
+            await using var update = connection.CreateCommand();
+            update.Transaction = transaction;
+            update.CommandText =
+                """
+                UPDATE Devices
+                SET GroupId = $groupId,
+                    UpdatedAt = $updatedAt
+                WHERE AgentId = $agentId;
+                """;
+            update.Parameters.AddWithValue("$groupId", groupId.HasValue ? groupId.Value : DBNull.Value);
+            update.Parameters.AddWithValue("$updatedAt", DateTimeOffset.UtcNow.ToString("O"));
+            update.Parameters.AddWithValue("$agentId", agentId);
+            updatedCount += await update.ExecuteNonQueryAsync(cancellationToken);
+
+            var eventMessage = groupName is null
+                ? $"Device {existing.HostName} removed from group."
+                : $"Device {existing.HostName} assigned to group {groupName}.";
+            await InsertEventAsync(connection, transaction, agentId, DeviceEventType.GroupChanged, eventMessage, DateTimeOffset.UtcNow, cancellationToken);
+        }
+
+        await transaction.CommitAsync(cancellationToken);
+        return updatedCount;
+    }
+
     public async Task<bool> DeleteDeviceAsync(string agentId, CancellationToken cancellationToken)
     {
         await using var connection = await OpenConnectionAsync(cancellationToken);
@@ -537,13 +606,35 @@ public sealed class SqliteDeviceRepository : IDeviceRepository
             """
             SELECT COUNT(1)
             FROM DeviceGroups
-            WHERE Name = $name AND ($excludeGroupId IS NULL OR Id <> $excludeGroupId);
+            WHERE Name = $name COLLATE NOCASE
+              AND ($excludeGroupId IS NULL OR Id <> $excludeGroupId);
             """;
         command.Parameters.AddWithValue("$name", name);
         command.Parameters.AddWithValue("$excludeGroupId", excludeGroupId.HasValue ? excludeGroupId.Value : DBNull.Value);
 
         var count = (long)(await command.ExecuteScalarAsync(cancellationToken) ?? 0L);
         return count > 0;
+    }
+
+    private static string NormalizeAndValidateGroupName(string rawName)
+    {
+        var name = rawName.Trim();
+        if (string.IsNullOrWhiteSpace(name))
+        {
+            throw new InvalidOperationException("Group name is required.");
+        }
+
+        if (name.Length > 64)
+        {
+            throw new InvalidOperationException("Group name must be 64 characters or fewer.");
+        }
+
+        if (name.Any(char.IsControl) || name.IndexOfAny(InvalidGroupNameCharacters) >= 0)
+        {
+            throw new InvalidOperationException("Group name contains invalid characters.");
+        }
+
+        return name;
     }
 
     private static void BindCommon(SqliteCommand command, string agentId, string hostName, string ipAddress, string macAddress, string currentUser, string osVersion, string agentVersion, DateTimeOffset timestamp)
