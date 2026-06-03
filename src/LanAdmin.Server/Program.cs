@@ -115,6 +115,47 @@ app.MapPost("/api/devices/assign-group-batch", async (BatchAssignGroupRequest re
     return Results.Ok(new { updated });
 });
 
+app.MapPost("/api/devices/{agentId}/shutdown-threshold", async (string agentId, SetShutdownThresholdRequest request, IDeviceRepository repository, CancellationToken cancellationToken) =>
+{
+    if (!TryValidateShutdownThresholdDays(request.ShutdownThresholdDays, out var errorMessage))
+    {
+        return Results.BadRequest(errorMessage);
+    }
+
+    try
+    {
+        var updated = await repository.SetShutdownThresholdAsync(agentId, request.ShutdownThresholdDays, cancellationToken);
+        return updated ? Results.Ok() : Results.NotFound();
+    }
+    catch (InvalidOperationException ex)
+    {
+        return Results.BadRequest(ex.Message);
+    }
+});
+
+app.MapPost("/api/devices/shutdown-threshold-batch", async (BatchSetShutdownThresholdRequest request, IDeviceRepository repository, CancellationToken cancellationToken) =>
+{
+    if (request.AgentIds is null || request.AgentIds.Count == 0)
+    {
+        return Results.BadRequest("At least one device must be selected.");
+    }
+
+    if (!TryValidateShutdownThresholdDays(request.ShutdownThresholdDays, out var errorMessage))
+    {
+        return Results.BadRequest(errorMessage);
+    }
+
+    try
+    {
+        var updated = await repository.SetShutdownThresholdsAsync(request.AgentIds, request.ShutdownThresholdDays, cancellationToken);
+        return Results.Ok(new { updated });
+    }
+    catch (InvalidOperationException ex)
+    {
+        return Results.BadRequest(ex.Message);
+    }
+});
+
 app.MapDelete("/api/devices/{agentId}", async (string agentId, IDeviceRepository repository, CancellationToken cancellationToken) =>
 {
     var deleted = await repository.DeleteDeviceAsync(agentId, cancellationToken);
@@ -170,6 +211,7 @@ app.Map("/ws/agent", async context =>
                     if (message is not null)
                     {
                         await repository.UpsertRegistrationAsync(message, context.RequestAborted);
+                        await SendAgentConfigurationAsync(webSocket, repository, message.AgentId, context.RequestAborted);
                     }
 
                     break;
@@ -180,6 +222,7 @@ app.Map("/ws/agent", async context =>
                     if (message is not null)
                     {
                         await repository.RecordHeartbeatAsync(message, context.RequestAborted);
+                        await SendAgentConfigurationAsync(webSocket, repository, message.AgentId, context.RequestAborted);
                     }
 
                     break;
@@ -213,6 +256,42 @@ static string BuildAgentWebSocketUrl(string serverBaseUrl)
     }
 
     return builder.Uri.ToString();
+}
+
+static bool TryValidateShutdownThresholdDays(int shutdownThresholdDays, out string? errorMessage)
+{
+    if (shutdownThresholdDays < ShutdownThresholdDefaults.MinDays || shutdownThresholdDays > ShutdownThresholdDefaults.MaxDays)
+    {
+        errorMessage = $"Shutdown threshold must be between {ShutdownThresholdDefaults.MinDays} and {ShutdownThresholdDefaults.MaxDays} days.";
+        return false;
+    }
+
+    errorMessage = null;
+    return true;
+}
+
+static async Task SendAgentConfigurationAsync(WebSocket webSocket, IDeviceRepository repository, string agentId, CancellationToken cancellationToken)
+{
+    var shutdownThresholdDays = await repository.GetShutdownThresholdDaysAsync(agentId, cancellationToken);
+    if (shutdownThresholdDays is null || webSocket.State != WebSocketState.Open)
+    {
+        return;
+    }
+
+    var payload = new AgentConfigurationMessage(
+        agentId,
+        shutdownThresholdDays.Value,
+        DateTimeOffset.UtcNow);
+
+    await SendSocketEnvelopeAsync(webSocket, ServerMessageTypes.Configuration, payload, cancellationToken);
+}
+
+static async Task SendSocketEnvelopeAsync<T>(WebSocket webSocket, string type, T payload, CancellationToken cancellationToken)
+{
+    var envelope = new { type, payload };
+    var json = JsonSerializer.Serialize(envelope, JsonDefaults.Options);
+    var bytes = Encoding.UTF8.GetBytes(json);
+    await webSocket.SendAsync(bytes, WebSocketMessageType.Text, true, cancellationToken);
 }
 
 static async Task<string?> ReceiveMessageAsync(WebSocket webSocket, byte[] buffer, CancellationToken cancellationToken)

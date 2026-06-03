@@ -105,6 +105,8 @@
                                                 </DataGridTemplateColumn>
                                                 <DataGridTextColumn Binding="{Binding HostName}" Header="主机名" IsReadOnly="True" Width="140" />
                                                 <DataGridTextColumn Binding="{Binding Status}" Header="状态" IsReadOnly="True" Width="80" />
+                                                <DataGridTextColumn Binding="{Binding UptimeDisplay}" Header="运行时长" IsReadOnly="True" Width="130" />
+                                                <DataGridTextColumn Binding="{Binding ShutdownThresholdDisplay}" Header="关机阈值" IsReadOnly="True" Width="110" />
                                                 <DataGridTextColumn Binding="{Binding IpAddress}" Header="IP" IsReadOnly="True" Width="120" />
                                                 <DataGridTextColumn Binding="{Binding MacAddress}" Header="MAC" IsReadOnly="True" Width="140" />
                                                 <DataGridTextColumn Binding="{Binding CurrentUser}" Header="用户" IsReadOnly="True" Width="120" />
@@ -159,6 +161,18 @@
                             <Button Width="120"
                                     Click="DeleteDeviceButton_Click"
                                     Content="删除设备" />
+                        </StackPanel>
+
+                        <TextBlock Margin="0,0,0,6" Text="关机阈值（天）" />
+                        <TextBox x:Name="ShutdownThresholdTextBox" Margin="0,0,0,8" />
+                        <StackPanel Margin="0,0,0,12" Orientation="Horizontal">
+                            <Button Width="120"
+                                    Margin="0,0,8,0"
+                                    Click="SetShutdownThresholdButton_Click"
+                                    Content="设置关机阈值" />
+                            <Button Width="120"
+                                    Click="ResetShutdownThresholdButton_Click"
+                                    Content="恢复默认7天" />
                         </StackPanel>
 
                         <TextBlock Margin="0,0,0,6" Text="新分组名称" />

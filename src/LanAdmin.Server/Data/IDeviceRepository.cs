@@ -15,6 +15,9 @@ public interface IDeviceRepository
     Task<bool> DeleteGroupAsync(long groupId, CancellationToken cancellationToken);
     Task<bool> AssignGroupAsync(string agentId, long? groupId, CancellationToken cancellationToken);
     Task<int> AssignGroupsAsync(IReadOnlyList<string> agentIds, long? groupId, CancellationToken cancellationToken);
+    Task<int?> GetShutdownThresholdDaysAsync(string agentId, CancellationToken cancellationToken);
+    Task<bool> SetShutdownThresholdAsync(string agentId, int shutdownThresholdDays, CancellationToken cancellationToken);
+    Task<int> SetShutdownThresholdsAsync(IReadOnlyList<string> agentIds, int shutdownThresholdDays, CancellationToken cancellationToken);
     Task<bool> DeleteDeviceAsync(string agentId, CancellationToken cancellationToken);
     Task<int> MarkOfflineDevicesAsync(DateTimeOffset threshold, CancellationToken cancellationToken);
 }

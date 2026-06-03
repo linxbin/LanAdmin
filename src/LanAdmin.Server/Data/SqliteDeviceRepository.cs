@@ -45,6 +45,8 @@ public sealed class SqliteDeviceRepository : IDeviceRepository
                 AgentVersion TEXT NOT NULL,
                 Status INTEGER NOT NULL,
                 LastSeenAt TEXT NOT NULL,
+                UptimeSeconds INTEGER NOT NULL DEFAULT 0,
+                ShutdownThresholdDays INTEGER NOT NULL DEFAULT 7,
                 GroupId INTEGER NULL,
                 CreatedAt TEXT NOT NULL,
                 UpdatedAt TEXT NOT NULL,
@@ -64,6 +66,8 @@ public sealed class SqliteDeviceRepository : IDeviceRepository
             """;
 
         await command.ExecuteNonQueryAsync(cancellationToken);
+        await EnsureDeviceColumnExistsAsync(connection, "UptimeSeconds", "INTEGER NOT NULL DEFAULT 0", cancellationToken);
+        await EnsureDeviceColumnExistsAsync(connection, "ShutdownThresholdDays", $"INTEGER NOT NULL DEFAULT {ShutdownThresholdDefaults.DefaultDays}", cancellationToken);
     }
 
     public async Task UpsertRegistrationAsync(AgentRegisterMessage message, CancellationToken cancellationToken)
@@ -90,13 +94,15 @@ public sealed class SqliteDeviceRepository : IDeviceRepository
                 """
                 INSERT INTO Devices (
                     AgentId, HostName, IpAddress, MacAddress, CurrentUser, OsVersion, AgentVersion,
-                    Status, LastSeenAt, GroupId, CreatedAt, UpdatedAt
+                    Status, LastSeenAt, UptimeSeconds, ShutdownThresholdDays, GroupId, CreatedAt, UpdatedAt
                 ) VALUES (
                     $agentId, $hostName, $ipAddress, $macAddress, $currentUser, $osVersion, $agentVersion,
-                    $status, $lastSeenAt, NULL, $createdAt, $updatedAt
+                    $status, $lastSeenAt, $uptimeSeconds, $shutdownThresholdDays, NULL, $createdAt, $updatedAt
                 );
                 """;
             BindCommon(insert, message.AgentId, message.HostName, message.IpAddress, message.MacAddress, message.CurrentUser, message.OsVersion, message.AgentVersion, now);
+            insert.Parameters.AddWithValue("$uptimeSeconds", message.UptimeSeconds);
+            insert.Parameters.AddWithValue("$shutdownThresholdDays", ShutdownThresholdDefaults.DefaultDays);
             await insert.ExecuteNonQueryAsync(cancellationToken);
 
             await InsertEventAsync(connection, transaction, message.AgentId, DeviceEventType.Registered, $"Device {message.HostName} registered.", now, cancellationToken);
@@ -122,10 +128,12 @@ public sealed class SqliteDeviceRepository : IDeviceRepository
                     AgentVersion = $agentVersion,
                     Status = $status,
                     LastSeenAt = $lastSeenAt,
+                    UptimeSeconds = $uptimeSeconds,
                     UpdatedAt = $updatedAt
                 WHERE AgentId = $agentId;
                 """;
             BindCommon(update, message.AgentId, message.HostName, message.IpAddress, message.MacAddress, message.CurrentUser, message.OsVersion, message.AgentVersion, now);
+            update.Parameters.AddWithValue("$uptimeSeconds", message.UptimeSeconds);
             await update.ExecuteNonQueryAsync(cancellationToken);
 
             if (mergedByMacAddress)
@@ -171,6 +179,7 @@ public sealed class SqliteDeviceRepository : IDeviceRepository
                 CurrentUser = $currentUser,
                 Status = $status,
                 LastSeenAt = $lastSeenAt,
+                UptimeSeconds = $uptimeSeconds,
                 UpdatedAt = $updatedAt
             WHERE AgentId = $agentId;
             """;
@@ -179,6 +188,7 @@ public sealed class SqliteDeviceRepository : IDeviceRepository
         update.Parameters.AddWithValue("$currentUser", message.CurrentUser);
         update.Parameters.AddWithValue("$status", (int)DeviceStatus.Online);
         update.Parameters.AddWithValue("$lastSeenAt", now.ToString("O"));
+        update.Parameters.AddWithValue("$uptimeSeconds", message.UptimeSeconds);
         update.Parameters.AddWithValue("$updatedAt", now.ToString("O"));
         await update.ExecuteNonQueryAsync(cancellationToken);
 
@@ -198,7 +208,7 @@ public sealed class SqliteDeviceRepository : IDeviceRepository
         command.CommandText =
             """
             SELECT d.AgentId, d.HostName, d.IpAddress, d.MacAddress, d.CurrentUser, d.OsVersion, d.AgentVersion,
-                   d.Status, d.LastSeenAt, g.Name
+                   d.Status, d.LastSeenAt, g.Name, d.UptimeSeconds, d.ShutdownThresholdDays
             FROM Devices d
             LEFT JOIN DeviceGroups g ON g.Id = d.GroupId
             WHERE $search IS NULL OR d.HostName LIKE $pattern OR d.AgentId LIKE $pattern
@@ -220,7 +230,9 @@ public sealed class SqliteDeviceRepository : IDeviceRepository
                 reader.GetString(6),
                 (DeviceStatus)reader.GetInt32(7),
                 DateTimeOffset.Parse(reader.GetString(8)),
-                reader.IsDBNull(9) ? null : reader.GetString(9)));
+                reader.IsDBNull(9) ? null : reader.GetString(9),
+                reader.GetInt64(10),
+                reader.GetInt32(11)));
         }
 
         return results;
@@ -514,6 +526,69 @@ public sealed class SqliteDeviceRepository : IDeviceRepository
         return updatedCount;
     }
 
+    public async Task<int?> GetShutdownThresholdDaysAsync(string agentId, CancellationToken cancellationToken)
+    {
+        await using var connection = await OpenConnectionAsync(cancellationToken);
+        await using var command = connection.CreateCommand();
+        command.CommandText = "SELECT ShutdownThresholdDays FROM Devices WHERE AgentId = $agentId;";
+        command.Parameters.AddWithValue("$agentId", agentId);
+
+        var result = await command.ExecuteScalarAsync(cancellationToken);
+        return result is null or DBNull ? null : Convert.ToInt32(result);
+    }
+
+    public async Task<bool> SetShutdownThresholdAsync(string agentId, int shutdownThresholdDays, CancellationToken cancellationToken)
+    {
+        ValidateShutdownThresholdDays(shutdownThresholdDays);
+
+        await using var connection = await OpenConnectionAsync(cancellationToken);
+        await using var transaction = (SqliteTransaction)await connection.BeginTransactionAsync(cancellationToken);
+        var existing = await GetDeviceRecordByAgentIdAsync(connection, transaction, agentId, cancellationToken);
+        if (existing is null)
+        {
+            await transaction.RollbackAsync(cancellationToken);
+            return false;
+        }
+
+        await UpdateShutdownThresholdAsync(connection, transaction, existing, shutdownThresholdDays, cancellationToken);
+        await transaction.CommitAsync(cancellationToken);
+        return true;
+    }
+
+    public async Task<int> SetShutdownThresholdsAsync(IReadOnlyList<string> agentIds, int shutdownThresholdDays, CancellationToken cancellationToken)
+    {
+        ValidateShutdownThresholdDays(shutdownThresholdDays);
+
+        var normalizedAgentIds = agentIds
+            .Where(agentId => !string.IsNullOrWhiteSpace(agentId))
+            .Select(agentId => agentId.Trim())
+            .Distinct(StringComparer.OrdinalIgnoreCase)
+            .ToList();
+
+        if (normalizedAgentIds.Count == 0)
+        {
+            return 0;
+        }
+
+        await using var connection = await OpenConnectionAsync(cancellationToken);
+        await using var transaction = (SqliteTransaction)await connection.BeginTransactionAsync(cancellationToken);
+
+        var updatedCount = 0;
+        foreach (var agentId in normalizedAgentIds)
+        {
+            var existing = await GetDeviceRecordByAgentIdAsync(connection, transaction, agentId, cancellationToken);
+            if (existing is null)
+            {
+                continue;
+            }
+
+            updatedCount += await UpdateShutdownThresholdAsync(connection, transaction, existing, shutdownThresholdDays, cancellationToken);
+        }
+
+        await transaction.CommitAsync(cancellationToken);
+        return updatedCount;
+    }
+
     public async Task<bool> DeleteDeviceAsync(string agentId, CancellationToken cancellationToken)
     {
         await using var connection = await OpenConnectionAsync(cancellationToken);
@@ -596,6 +671,78 @@ public sealed class SqliteDeviceRepository : IDeviceRepository
         var connection = new SqliteConnection(_connectionString);
         await connection.OpenAsync(cancellationToken);
         return connection;
+    }
+
+    private static async Task EnsureDeviceColumnExistsAsync(SqliteConnection connection, string columnName, string columnDefinition, CancellationToken cancellationToken)
+    {
+        await using var command = connection.CreateCommand();
+        command.CommandText = "PRAGMA table_info(Devices);";
+
+        var exists = false;
+        await using (var reader = await command.ExecuteReaderAsync(cancellationToken))
+        {
+            while (await reader.ReadAsync(cancellationToken))
+            {
+                if (string.Equals(reader.GetString(1), columnName, StringComparison.OrdinalIgnoreCase))
+                {
+                    exists = true;
+                    break;
+                }
+            }
+        }
+
+        if (exists)
+        {
+            return;
+        }
+
+        await using var alterCommand = connection.CreateCommand();
+        alterCommand.CommandText = $"ALTER TABLE Devices ADD COLUMN {columnName} {columnDefinition};";
+        await alterCommand.ExecuteNonQueryAsync(cancellationToken);
+    }
+
+    private static void ValidateShutdownThresholdDays(int shutdownThresholdDays)
+    {
+        if (shutdownThresholdDays < ShutdownThresholdDefaults.MinDays || shutdownThresholdDays > ShutdownThresholdDefaults.MaxDays)
+        {
+            throw new InvalidOperationException($"Shutdown threshold must be between {ShutdownThresholdDefaults.MinDays} and {ShutdownThresholdDefaults.MaxDays} days.");
+        }
+    }
+
+    private static async Task<int> UpdateShutdownThresholdAsync(
+        SqliteConnection connection,
+        SqliteTransaction transaction,
+        DeviceRecord existing,
+        int shutdownThresholdDays,
+        CancellationToken cancellationToken)
+    {
+        await using var update = connection.CreateCommand();
+        update.Transaction = transaction;
+        update.CommandText =
+            """
+            UPDATE Devices
+            SET ShutdownThresholdDays = $shutdownThresholdDays,
+                UpdatedAt = $updatedAt
+            WHERE AgentId = $agentId;
+            """;
+        update.Parameters.AddWithValue("$shutdownThresholdDays", shutdownThresholdDays);
+        update.Parameters.AddWithValue("$updatedAt", DateTimeOffset.UtcNow.ToString("O"));
+        update.Parameters.AddWithValue("$agentId", existing.AgentId);
+        var updatedRows = await update.ExecuteNonQueryAsync(cancellationToken);
+
+        if (updatedRows > 0)
+        {
+            await InsertEventAsync(
+                connection,
+                transaction,
+                existing.AgentId,
+                DeviceEventType.ShutdownThresholdChanged,
+                $"Device {existing.HostName} shutdown threshold set to {shutdownThresholdDays} day(s).",
+                DateTimeOffset.UtcNow,
+                cancellationToken);
+        }
+
+        return updatedRows;
     }
 
     private async Task<bool> GroupNameExistsAsync(string name, long? excludeGroupId, CancellationToken cancellationToken)

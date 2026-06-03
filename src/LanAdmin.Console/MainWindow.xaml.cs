@@ -63,12 +63,14 @@ public partial class MainWindow : Window
             var selectedManageGroupId = (ManageGroupsListBox.SelectedItem as DeviceGroupDto)?.Id;
             var newGroupNameText = GroupNameTextBox.Text;
             var editGroupNameText = EditGroupNameTextBox.Text;
+            var shutdownThresholdText = ShutdownThresholdTextBox.Text;
 
             var groups = (await _apiClient.GetGroupsAsync())
                 .OrderBy(group => group.Name, StringComparer.CurrentCultureIgnoreCase)
                 .ToList();
             ReplaceItems(_groups, groups);
             RestoreGroupUiState(selectedAssignGroupId, selectedManageGroupId, newGroupNameText, editGroupNameText);
+            ShutdownThresholdTextBox.Text = shutdownThresholdText;
 
             _allDevices = (await _apiClient.GetDevicesAsync(null))
                 .Select(ToBeijingDevice)
@@ -445,8 +447,8 @@ public partial class MainWindow : Window
         if (checkedDevices.Count == 1)
         {
             var checkedDevice = checkedDevices[0];
-            SelectedDeviceTextBlock.Text = $"当前勾选设备: {checkedDevice.HostName} | IP: {checkedDevice.IpAddress} | 状态: {checkedDevice.Status}";
-            CurrentDeviceGroupTextBlock.Text = $"{checkedDevice.HostName} 当前所属分组: {GetEffectiveGroupName(checkedDevice)}";
+            SelectedDeviceTextBlock.Text = $"当前勾选设备: {checkedDevice.HostName} | IP: {checkedDevice.IpAddress} | 状态: {checkedDevice.Status} | 运行时长: {FormatUptime(checkedDevice.UptimeSeconds)}";
+            CurrentDeviceGroupTextBlock.Text = $"{checkedDevice.HostName} 当前所属分组: {GetEffectiveGroupName(checkedDevice)} | 关机阈值: {checkedDevice.ShutdownThresholdDays} 天";
             return;
         }
 
@@ -457,8 +459,8 @@ public partial class MainWindow : Window
             return;
         }
 
-        SelectedDeviceTextBlock.Text = $"当前设备: {device.HostName} | IP: {device.IpAddress} | 状态: {device.Status}";
-        CurrentDeviceGroupTextBlock.Text = $"{device.HostName} 当前所属分组: {GetEffectiveGroupName(device)}";
+        SelectedDeviceTextBlock.Text = $"当前设备: {device.HostName} | IP: {device.IpAddress} | 状态: {device.Status} | 运行时长: {FormatUptime(device.UptimeSeconds)}";
+        CurrentDeviceGroupTextBlock.Text = $"{device.HostName} 当前所属分组: {GetEffectiveGroupName(device)} | 关机阈值: {device.ShutdownThresholdDays} 天";
     }
 
     private DeviceDto? GetSelectedDevice()
@@ -483,6 +485,18 @@ public partial class MainWindow : Window
         return _allDevices
             .Where(device => _checkedAgentIds.Contains(device.AgentId))
             .ToList();
+    }
+
+    private List<DeviceDto> GetDevicesForThresholdOperation()
+    {
+        var checkedDevices = GetCheckedDevices();
+        if (checkedDevices.Count > 0)
+        {
+            return checkedDevices;
+        }
+
+        var selectedDevice = GetSelectedDevice();
+        return selectedDevice is null ? [] : [selectedDevice];
     }
 
     private static bool TryGetValidatedGroupName(string rawText, out string? validatedName)
@@ -510,6 +524,69 @@ public partial class MainWindow : Window
         }
 
         return true;
+    }
+
+    private bool TryGetValidatedShutdownThresholdDays(out int shutdownThresholdDays)
+    {
+        shutdownThresholdDays = 0;
+        var rawText = ShutdownThresholdTextBox.Text.Trim();
+        if (!int.TryParse(rawText, out shutdownThresholdDays))
+        {
+            MessageBox.Show(this, "请输入有效的关机阈值天数。", "提示", MessageBoxButton.OK, MessageBoxImage.Information);
+            return false;
+        }
+
+        if (shutdownThresholdDays < ShutdownThresholdDefaults.MinDays || shutdownThresholdDays > ShutdownThresholdDefaults.MaxDays)
+        {
+            MessageBox.Show(
+                this,
+                $"关机阈值必须在 {ShutdownThresholdDefaults.MinDays} 到 {ShutdownThresholdDefaults.MaxDays} 天之间。",
+                "提示",
+                MessageBoxButton.OK,
+                MessageBoxImage.Information);
+            return false;
+        }
+
+        return true;
+    }
+
+    private async void SetShutdownThresholdButton_Click(object sender, RoutedEventArgs e)
+    {
+        var devices = GetDevicesForThresholdOperation();
+        if (devices.Count == 0)
+        {
+            MessageBox.Show(this, "请先勾选设备，或单击选中一台设备。", "提示", MessageBoxButton.OK, MessageBoxImage.Information);
+            return;
+        }
+
+        if (!TryGetValidatedShutdownThresholdDays(out var shutdownThresholdDays))
+        {
+            return;
+        }
+
+        try
+        {
+            if (devices.Count == 1)
+            {
+                await _apiClient.SetShutdownThresholdAsync(devices[0].AgentId, shutdownThresholdDays);
+            }
+            else
+            {
+                await _apiClient.SetShutdownThresholdsAsync(devices.Select(device => device.AgentId).ToList(), shutdownThresholdDays);
+            }
+
+            await RefreshAsync();
+        }
+        catch (Exception ex)
+        {
+            MessageBox.Show(this, ex.Message, "设置关机阈值失败", MessageBoxButton.OK, MessageBoxImage.Error);
+        }
+    }
+
+    private void ResetShutdownThresholdButton_Click(object sender, RoutedEventArgs e)
+    {
+        ShutdownThresholdTextBox.Text = ShutdownThresholdDefaults.DefaultDays.ToString();
+        SetShutdownThresholdButton_Click(sender, e);
     }
 
     private void HandleDeviceCheckedChanged(DeviceRowViewModel deviceRow)
@@ -633,6 +710,22 @@ public partial class MainWindow : Window
                value.Contains(searchText, StringComparison.CurrentCultureIgnoreCase);
     }
 
+    private static string FormatUptime(long uptimeSeconds)
+    {
+        var uptime = TimeSpan.FromSeconds(Math.Max(0, uptimeSeconds));
+        if (uptime.TotalDays >= 1)
+        {
+            return $"{(int)uptime.TotalDays}天 {uptime.Hours}小时";
+        }
+
+        if (uptime.TotalHours >= 1)
+        {
+            return $"{(int)uptime.TotalHours}小时 {uptime.Minutes}分钟";
+        }
+
+        return $"{Math.Max(0, (int)uptime.TotalMinutes)}分钟";
+    }
+
     private static DeviceDto ToBeijingDevice(DeviceDto device)
     {
         return device with
@@ -732,6 +825,10 @@ public partial class MainWindow : Window
         public DateTimeOffset LastSeenAt => Device.LastSeenAt;
 
         public string AgentVersion => Device.AgentVersion;
+
+        public string UptimeDisplay => FormatUptime(Device.UptimeSeconds);
+
+        public string ShutdownThresholdDisplay => $"{Device.ShutdownThresholdDays} 天";
 
         public void SetSelectedSilently(bool value)
         {

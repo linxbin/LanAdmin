@@ -8,6 +8,11 @@ public static class AgentMessageTypes
     public const string Heartbeat = "heartbeat";
 }
 
+public static class ServerMessageTypes
+{
+    public const string Configuration = "configuration";
+}
+
 public sealed record AgentEnvelope(string Type, JsonElement Payload);
 
 public sealed record AgentRegisterMessage(
@@ -18,10 +23,17 @@ public sealed record AgentRegisterMessage(
     string CurrentUser,
     string OsVersion,
     string AgentVersion,
+    long UptimeSeconds,
     DateTimeOffset ReportedAt);
 
 public sealed record AgentHeartbeatMessage(
     string AgentId,
     string IpAddress,
     string CurrentUser,
+    long UptimeSeconds,
+    DateTimeOffset ReportedAt);
+
+public sealed record AgentConfigurationMessage(
+    string AgentId,
+    int ShutdownThresholdDays,
     DateTimeOffset ReportedAt);

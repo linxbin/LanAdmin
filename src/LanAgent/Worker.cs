@@ -12,6 +12,7 @@ namespace LanAgent;
 
 public sealed class Worker : BackgroundService
 {
+    private static readonly TimeSpan ServerConfigurationTimeout = TimeSpan.FromSeconds(5);
     private static readonly TimeSpan[] RetryDelays =
     {
         TimeSpan.FromSeconds(5),
@@ -23,12 +24,14 @@ public sealed class Worker : BackgroundService
     private readonly ILogger<Worker> _logger;
     private readonly AgentConfigurationResolver _configurationResolver;
     private readonly string _agentId;
+    private int _shutdownThresholdDays;
 
     public Worker(ILogger<Worker> logger)
     {
         _logger = logger;
         _configurationResolver = new AgentConfigurationResolver(logger);
         _agentId = AgentIdentityStore.GetOrCreateAgentId();
+        _shutdownThresholdDays = AgentNotifierStateStore.Load()?.ShutdownThresholdDays ?? ShutdownThresholdDefaults.DefaultDays;
     }
 
     protected override async Task ExecuteAsync(CancellationToken stoppingToken)
@@ -38,6 +41,10 @@ public sealed class Worker : BackgroundService
 
         while (!stoppingToken.IsCancellationRequested)
         {
+            var currentSnapshot = DeviceSnapshot.Capture();
+            UpdateNotifierState(currentSnapshot);
+            NotifierProcessManager.EnsureRunning(_logger);
+
             AgentRuntimeState runtimeState;
 
             try
@@ -65,13 +72,21 @@ public sealed class Worker : BackgroundService
                 _logger.LogInformation("Connected to {ServerUrl}", runtimeState.ServerUrl);
                 retryIndex = 0;
 
-                var registration = BuildRegistrationMessage();
+                var registrationSnapshot = DeviceSnapshot.Capture();
+                UpdateNotifierState(registrationSnapshot);
+                NotifierProcessManager.EnsureRunning(_logger);
+                var registration = BuildRegistrationMessage(registrationSnapshot);
                 await SendAsync(socket, AgentMessageTypes.Register, registration, stoppingToken);
+                await RefreshServerConfigurationAsync(socket, registrationSnapshot, stoppingToken);
 
                 while (socket.State == WebSocketState.Open && !stoppingToken.IsCancellationRequested)
                 {
-                    var heartbeat = BuildHeartbeatMessage();
+                    var heartbeatSnapshot = DeviceSnapshot.Capture();
+                    UpdateNotifierState(heartbeatSnapshot);
+                    NotifierProcessManager.EnsureRunning(_logger);
+                    var heartbeat = BuildHeartbeatMessage(heartbeatSnapshot);
                     await SendAsync(socket, AgentMessageTypes.Heartbeat, heartbeat, stoppingToken);
+                    await RefreshServerConfigurationAsync(socket, heartbeatSnapshot, stoppingToken);
                     await Task.Delay(TimeSpan.FromSeconds(runtimeState.HeartbeatSeconds), stoppingToken);
                 }
             }
@@ -88,9 +103,8 @@ public sealed class Worker : BackgroundService
         }
     }
 
-    private AgentRegisterMessage BuildRegistrationMessage()
+    private AgentRegisterMessage BuildRegistrationMessage(DeviceSnapshot snapshot)
     {
-        var snapshot = DeviceSnapshot.Capture();
         return new AgentRegisterMessage(
             _agentId,
             snapshot.HostName,
@@ -99,17 +113,42 @@ public sealed class Worker : BackgroundService
             snapshot.CurrentUser,
             snapshot.OsVersion,
             snapshot.AgentVersion,
+            snapshot.UptimeSeconds,
             DateTimeOffset.UtcNow);
     }
 
-    private AgentHeartbeatMessage BuildHeartbeatMessage()
+    private AgentHeartbeatMessage BuildHeartbeatMessage(DeviceSnapshot snapshot)
     {
-        var snapshot = DeviceSnapshot.Capture();
         return new AgentHeartbeatMessage(
             _agentId,
             snapshot.IpAddress,
             snapshot.CurrentUser,
+            snapshot.UptimeSeconds,
             DateTimeOffset.UtcNow);
+    }
+
+    private async Task RefreshServerConfigurationAsync(ClientWebSocket socket, DeviceSnapshot snapshot, CancellationToken cancellationToken)
+    {
+        var configuration = await TryReceiveServerConfigurationAsync(socket, cancellationToken);
+        if (configuration is null ||
+            !string.Equals(configuration.AgentId, _agentId, StringComparison.OrdinalIgnoreCase))
+        {
+            return;
+        }
+
+        _shutdownThresholdDays = configuration.ShutdownThresholdDays;
+        UpdateNotifierState(snapshot);
+    }
+
+    private void UpdateNotifierState(DeviceSnapshot snapshot)
+    {
+        AgentNotifierStateStore.Save(new AgentNotifierState(
+            _agentId,
+            snapshot.HostName,
+            snapshot.CurrentUser,
+            snapshot.UptimeSeconds,
+            _shutdownThresholdDays,
+            DateTimeOffset.UtcNow));
     }
 
     private static async Task SendAsync<T>(ClientWebSocket socket, string type, T payload, CancellationToken cancellationToken)
@@ -118,6 +157,62 @@ public sealed class Worker : BackgroundService
         var json = JsonSerializer.Serialize(envelope);
         var bytes = Encoding.UTF8.GetBytes(json);
         await socket.SendAsync(bytes, WebSocketMessageType.Text, true, cancellationToken);
+    }
+
+    private static async Task<AgentConfigurationMessage?> TryReceiveServerConfigurationAsync(ClientWebSocket socket, CancellationToken cancellationToken)
+    {
+        using var timeoutCts = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
+        timeoutCts.CancelAfter(ServerConfigurationTimeout);
+
+        try
+        {
+            var payload = await ReceiveMessageAsync(socket, timeoutCts.Token);
+            if (payload is null)
+            {
+                return null;
+            }
+
+            var envelope = JsonSerializer.Deserialize<AgentEnvelope>(payload, AgentJson.Options);
+            if (envelope is null || !string.Equals(envelope.Type, ServerMessageTypes.Configuration, StringComparison.OrdinalIgnoreCase))
+            {
+                return null;
+            }
+
+            return envelope.Payload.Deserialize<AgentConfigurationMessage>(AgentJson.Options);
+        }
+        catch (OperationCanceledException) when (!cancellationToken.IsCancellationRequested)
+        {
+            return null;
+        }
+        catch (WebSocketException)
+        {
+            return null;
+        }
+        catch (JsonException)
+        {
+            return null;
+        }
+    }
+
+    private static async Task<string?> ReceiveMessageAsync(ClientWebSocket socket, CancellationToken cancellationToken)
+    {
+        var buffer = new byte[8 * 1024];
+        using var stream = new MemoryStream();
+
+        while (true)
+        {
+            var result = await socket.ReceiveAsync(buffer, cancellationToken);
+            if (result.MessageType == WebSocketMessageType.Close)
+            {
+                return null;
+            }
+
+            stream.Write(buffer, 0, result.Count);
+            if (result.EndOfMessage)
+            {
+                return Encoding.UTF8.GetString(stream.ToArray());
+            }
+        }
     }
 
     private static Task DelayBeforeRetryAsync(int retryIndex, CancellationToken cancellationToken)
@@ -453,7 +548,8 @@ internal sealed record DeviceSnapshot(
     string MacAddress,
     string CurrentUser,
     string OsVersion,
-    string AgentVersion)
+    string AgentVersion,
+    long UptimeSeconds)
 {
     public static DeviceSnapshot Capture()
     {
@@ -464,7 +560,8 @@ internal sealed record DeviceSnapshot(
             networkIdentity.MacAddress,
             Environment.UserName,
             Environment.OSVersion.VersionString,
-            Assembly.GetExecutingAssembly().GetName().Version?.ToString() ?? "1.0.0");
+            Assembly.GetExecutingAssembly().GetName().Version?.ToString() ?? "1.0.0",
+            (long)TimeSpan.FromMilliseconds(Environment.TickCount64).TotalSeconds);
     }
 
     private static NetworkIdentity GetPrimaryNetworkIdentity()

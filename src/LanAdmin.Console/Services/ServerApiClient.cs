@@ -77,6 +77,20 @@ public sealed class ServerApiClient
         response.EnsureSuccessStatusCode();
     }
 
+    public async Task SetShutdownThresholdAsync(string agentId, int shutdownThresholdDays)
+    {
+        var payload = JsonSerializer.Serialize(new SetShutdownThresholdRequest(shutdownThresholdDays), _jsonOptions);
+        using var response = await _httpClient.PostAsync($"/api/devices/{Uri.EscapeDataString(agentId)}/shutdown-threshold", new StringContent(payload, Encoding.UTF8, "application/json"));
+        response.EnsureSuccessStatusCode();
+    }
+
+    public async Task SetShutdownThresholdsAsync(IReadOnlyList<string> agentIds, int shutdownThresholdDays)
+    {
+        var payload = JsonSerializer.Serialize(new BatchSetShutdownThresholdRequest(agentIds, shutdownThresholdDays), _jsonOptions);
+        using var response = await _httpClient.PostAsync("/api/devices/shutdown-threshold-batch", new StringContent(payload, Encoding.UTF8, "application/json"));
+        response.EnsureSuccessStatusCode();
+    }
+
     public async Task DeleteDeviceAsync(string agentId)
     {
         using var response = await _httpClient.DeleteAsync($"/api/devices/{Uri.EscapeDataString(agentId)}");
