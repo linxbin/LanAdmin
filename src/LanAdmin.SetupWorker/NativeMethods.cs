@@ -25,6 +25,7 @@ internal sealed class SafeServiceHandle : SafeHandleZeroOrMinusOneIsInvalid
 internal static class NativeMethods
 {
     public const int ErrorServiceDoesNotExist = 1060;
+    public const int ErrorServiceExists = 1073;
     public const int ErrorServiceMarkedForDelete = 1072;
 
     [DllImport("advapi32.dll", CharSet = CharSet.Unicode, SetLastError = true)]
@@ -59,6 +60,21 @@ internal static class NativeMethods
         IntPtr service,
         int infoLevel,
         ref ServiceFailureActions serviceInfo);
+
+    [DllImport("advapi32.dll", CharSet = CharSet.Unicode, SetLastError = true)]
+    [return: MarshalAs(UnmanagedType.Bool)]
+    public static extern bool ChangeServiceConfig(
+        IntPtr service,
+        uint serviceType,
+        uint startType,
+        uint errorControl,
+        string binaryPathName,
+        string? loadOrderGroup,
+        IntPtr tagId,
+        string? dependencies,
+        string? serviceStartName,
+        string? password,
+        string? displayName);
 
     [DllImport("advapi32.dll", SetLastError = true)]
     [return: MarshalAs(UnmanagedType.Bool)]

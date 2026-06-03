@@ -14,6 +14,12 @@ Requirements:
 * `.NET 8 SDK` for build/publish
 * `Inno Setup` if you want to build the final installer `.exe` packages
 
+Current delivery shape:
+
+* `LanAdminServerSetup.exe`: one installer for `Server` + bundled `Console`
+* `LanAgentSetup.exe`: one fixed installer for all endpoints
+* `LanAgent` does not need a baked-in server address at install time; it resolves the server at runtime
+
 ## Publish
 
 Publish the server:
@@ -84,6 +90,10 @@ Build the server installer:
   -ServerBaseUrl "http://192.168.1.10:5000"
 ```
 
+`ServerListenUrl` is the bind address used by Kestrel on the server machine.
+
+`ServerBaseUrl` is the LAN address that agents and the bundled console should use to reach the server API.
+
 Build the agent installer:
 
 ```powershell
@@ -99,11 +109,62 @@ Current default:
 * default target runtime is `win-x64`
 * target machines do not need a preinstalled `.NET 8 Runtime`
 * the installer flow no longer depends on `PowerShell`, `cmd.exe`, `sc.exe`, or `IExpress`
+* both installers support overwrite upgrade and will stop services / close matching installed processes before replacing files
 
 Generated installer output:
 
 * `artifacts\installer\LanAdminServerSetup.exe`
 * `artifacts\installer\LanAgentSetup.exe`
+
+## Recommended Deployment Flow
+
+1. Build `LanAdminServerSetup.exe` with the correct server LAN address.
+2. Install `LanAdminServerSetup.exe` on the always-on machine in the LAN.
+3. Confirm `LanAdminServer` is running.
+4. Redistribute `agent-package\LanAgentSetup.exe` from the server install directory, or use the same generated `artifacts\installer\LanAgentSetup.exe`.
+5. Install `LanAgentSetup.exe` on endpoint machines.
+6. Open `LanAdmin.Console` and verify devices appear online.
+
+### Server Install Flow
+
+Run `LanAdminServerSetup.exe` on the server machine.
+
+During setup, the installer asks for:
+
+* `Server listen URL`
+* `Console server base URL`
+* `Database path`
+* `Offline threshold (seconds)`
+
+The installer then:
+
+* copies `Server`, `Console`, `SetupWorker`, and `LanAgentSetup.exe`
+* writes configuration into `server\appsettings.json` and `console\appsettings.json`
+* registers or updates the `LanAdminServer` Windows Service
+* starts the `LanAdminServer` service
+
+Default install directory:
+
+* `C:\Program Files\LanAdmin`
+
+Installed subdirectories:
+
+* `server\`
+* `console\`
+* `tools\`
+* `agent-package\`
+
+### Server Overwrite Upgrade
+
+Re-running `LanAdminServerSetup.exe` on the same machine is supported.
+
+Before files are replaced, the installer automatically:
+
+* stops the `LanAdminServer` service if it exists
+* closes the installed `LanAdmin.Server.exe`
+* closes the installed `LanAdmin.Console.exe`
+
+This is intended to allow in-place upgrade without manually closing the application first.
 
 ## Fixed Agent Package
 
@@ -112,6 +173,25 @@ After `LanAdmin Server` installation completes, the install directory includes:
 * `agent-package\LanAgentSetup.exe`
 
 `LanAgentSetup.exe` is now a fixed installer. It does not need a separate `.ini` file and does not need to be regenerated for each server installation.
+
+### Agent Install Flow
+
+Run `LanAgentSetup.exe` on the endpoint machine.
+
+The installer:
+
+* installs files into `C:\Program Files\LanAdmin\Agent`
+* registers or updates the `LanAgent` Windows Service
+* starts the `LanAgent` service
+
+### Agent Overwrite Upgrade
+
+Re-running `LanAgentSetup.exe` on the same machine is supported.
+
+Before files are replaced, the installer automatically:
+
+* stops the `LanAgent` service if it exists
+* closes the installed `LanAgent.exe`
 
 At runtime, `LanAgent` resolves its server address like this:
 
@@ -123,11 +203,26 @@ At runtime, `LanAgent` resolves its server address like this:
 
 ### Agent Silent Install
 
-Example:
+Standard silent install command for IT deployment:
 
 ```powershell
 LanAgentSetup.exe /VERYSILENT /SUPPRESSMSGBOXES /NORESTART
 ```
+
+If you need to launch it from PowerShell with elevation:
+
+```powershell
+Start-Process -FilePath .\LanAgentSetup.exe -Verb RunAs -ArgumentList '/VERYSILENT /SUPPRESSMSGBOXES /NORESTART' -Wait
+```
+
+Recommended post-install validation:
+
+```powershell
+Get-Service LanAgent
+Test-Path 'C:\Program Files\LanAdmin\Agent'
+```
+
+`runtime.json` is created after the agent successfully resolves bootstrap configuration at runtime, so it may not exist immediately at install completion.
 
 ## Config Files
 
@@ -192,6 +287,7 @@ After service deployment:
 
 1. Confirm both services exist in `services.msc`
 2. Confirm the server is listening on the configured port
-3. Confirm the agent log shows successful WebSocket connection
-4. Open `LanAdmin.Console` and verify the device appears as `Online`
-5. Stop the agent service and confirm the device transitions to `Offline`
+3. Confirm `LanAdmin.Console` can reach the configured server API
+4. Confirm the agent log shows successful bootstrap resolution and WebSocket connection
+5. Open `LanAdmin.Console` and verify the device appears as `Online`
+6. Stop the agent service and confirm the device transitions to `Offline`

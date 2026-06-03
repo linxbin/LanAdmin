@@ -16,8 +16,6 @@ internal static class ServiceManager
 
     public static void CreateOrReplaceService(string serviceName, string displayName, string executablePath)
     {
-        RemoveServiceIfExists(serviceName);
-
         using var manager = OpenServiceManager();
         var binaryPath = $"\"{executablePath}\"";
         var serviceHandle = NativeMethods.CreateService(
@@ -37,12 +35,27 @@ internal static class ServiceManager
 
         if (serviceHandle == IntPtr.Zero)
         {
-            throw new Win32Exception(Marshal.GetLastWin32Error(), $"Failed to create service '{serviceName}'.");
+            var error = Marshal.GetLastWin32Error();
+            if (error != NativeMethods.ErrorServiceExists)
+            {
+                throw new Win32Exception(error, $"Failed to create service '{serviceName}'.");
+            }
+
+            using var existingService = OpenService(manager, serviceName, throwIfMissing: true)
+                ?? throw new Win32Exception(error, $"Failed to open existing service '{serviceName}'.");
+            UpdateService(existingService, serviceName, displayName, binaryPath);
+            StartService(serviceName);
+            return;
         }
 
         using var service = new SafeServiceHandle(serviceHandle);
         ConfigureFailureActions(serviceName, service);
         StartService(serviceName);
+    }
+
+    public static void StopServiceIfExists(string serviceName)
+    {
+        StopServiceIfRunning(serviceName);
     }
 
     public static void RemoveServiceIfExists(string serviceName)
@@ -164,6 +177,29 @@ internal static class ServiceManager
         {
             Marshal.FreeHGlobal(actionsBuffer);
         }
+    }
+
+    private static void UpdateService(SafeServiceHandle service, string serviceName, string displayName, string binaryPath)
+    {
+        StopServiceIfRunning(serviceName);
+
+        if (!NativeMethods.ChangeServiceConfig(
+                service.DangerousGetHandle(),
+                ServiceWin32OwnProcess,
+                ServiceAutoStart,
+                ServiceErrorNormal,
+                binaryPath,
+                null,
+                IntPtr.Zero,
+                null,
+                null,
+                null,
+                displayName))
+        {
+            throw new Win32Exception(Marshal.GetLastWin32Error(), $"Failed to update service '{serviceName}'.");
+        }
+
+        ConfigureFailureActions(serviceName, service);
     }
 
     private static void WaitForServiceDeletion(string serviceName)

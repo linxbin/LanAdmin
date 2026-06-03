@@ -20,12 +20,15 @@ WizardStyle=modern
 PrivilegesRequired=admin
 ArchitecturesInstallIn64BitMode=x64compatible
 UninstallDisplayIcon={app}\console\{#MyAppExeName}
+CloseApplications=yes
+RestartApplications=no
 
 [Files]
 Source: "..\..\artifacts\server\*"; DestDir: "{app}\server"; Flags: recursesubdirs ignoreversion
 Source: "..\..\artifacts\console\*"; DestDir: "{app}\console"; Flags: recursesubdirs ignoreversion
 Source: "..\..\artifacts\installer\LanAgentSetup.exe"; DestDir: "{app}\agent-package"; Flags: ignoreversion
 Source: "..\..\artifacts\setup-worker\LanAdmin.SetupWorker.exe"; DestDir: "{app}\tools"; Flags: ignoreversion
+Source: "..\..\artifacts\setup-worker\LanAdmin.SetupWorker.exe"; DestName: "LanAdmin.SetupWorker.bootstrap.exe"; Flags: dontcopy
 
 [Icons]
 Name: "{autoprograms}\LanAdmin Console"; Filename: "{app}\console\{#MyAppExeName}"
@@ -96,4 +99,31 @@ end;
 function GetOfflineThreshold(Param: string): string;
 begin
   Result := OfflineThresholdPage.Values[0];
+end;
+
+function PrepareToInstall(var NeedsRestart: Boolean): String;
+var
+  TemporaryWorkerPath: string;
+  ResultCode: Integer;
+begin
+  Result := '';
+  ExtractTemporaryFile('LanAdmin.SetupWorker.bootstrap.exe');
+  TemporaryWorkerPath := ExpandConstant('{tmp}\LanAdmin.SetupWorker.bootstrap.exe');
+
+  if not Exec(
+      TemporaryWorkerPath,
+      'prepare-server-upgrade --install-dir "' + ExpandConstant('{app}') + '" --service-name "{#ServerServiceName}"',
+      ExpandConstant('{app}'),
+      SW_HIDE,
+      ewWaitUntilTerminated,
+      ResultCode) then
+  begin
+    Result := 'Failed to prepare LanAdmin Server for upgrade.';
+    exit;
+  end;
+
+  if ResultCode <> 0 then
+  begin
+    Result := 'LanAdmin Server upgrade preparation exited with code ' + IntToStr(ResultCode) + '.';
+  end;
 end;

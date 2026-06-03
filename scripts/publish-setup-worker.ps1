@@ -11,6 +11,11 @@ $commonScript = Join-Path $PSScriptRoot "Common.ps1"
 $project = Join-Path $PSScriptRoot "..\src\LanAdmin.SetupWorker\LanAdmin.SetupWorker.csproj"
 $outputPath = Get-OutputPath -RelativePath $Output
 
+dotnet restore $project -r $RuntimeIdentifier
+if ($LASTEXITCODE -ne 0) {
+    throw "dotnet restore failed for LanAdmin.SetupWorker"
+}
+
 $publishArguments = @(
     "publish",
     $project,

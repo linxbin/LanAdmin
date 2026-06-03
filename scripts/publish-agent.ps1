@@ -15,6 +15,13 @@ $commonScript = Join-Path $PSScriptRoot "Common.ps1"
 $project = Join-Path $PSScriptRoot "..\src\LanAgent\LanAgent.csproj"
 $outputPath = Get-OutputPath -RelativePath $Output
 
+if ($RuntimeIdentifier) {
+    dotnet restore $project -r $RuntimeIdentifier
+    if ($LASTEXITCODE -ne 0) {
+        throw "dotnet restore failed for LanAgent"
+    }
+}
+
 $publishArguments = @(
     "publish",
     $project,

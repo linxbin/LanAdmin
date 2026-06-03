@@ -1,3 +1,4 @@
+using System.Diagnostics;
 using System.Text.Json;
 using System.Text.Json.Nodes;
 
@@ -26,6 +27,8 @@ internal static class Program
             {
                 "configure-server" => ConfigureServer(options),
                 "configure-agent" => ConfigureAgent(options),
+                "prepare-server-upgrade" => PrepareServerUpgrade(options),
+                "prepare-agent-upgrade" => PrepareAgentUpgrade(options),
                 "remove-service" => RemoveService(options),
                 _ => throw new InvalidOperationException($"Unknown command: {args[0]}")
             };
@@ -101,6 +104,32 @@ internal static class Program
             serviceName,
             DefaultAgentServiceDisplayName,
             agentExePath);
+
+        return 0;
+    }
+
+    private static int PrepareAgentUpgrade(IReadOnlyDictionary<string, string> options)
+    {
+        var installDir = GetRequiredOption(options, "install-dir");
+        var serviceName = GetOptionalOption(options, "service-name") ?? "LanAgent";
+        var processName = GetOptionalOption(options, "process-name") ?? "LanAgent";
+        var executablePath = Path.Combine(installDir, "LanAgent.exe");
+
+        ServiceManager.StopServiceIfExists(serviceName);
+        TerminateProcesses(processName, executablePath);
+
+        return 0;
+    }
+
+    private static int PrepareServerUpgrade(IReadOnlyDictionary<string, string> options)
+    {
+        var installDir = GetRequiredOption(options, "install-dir");
+        var serviceName = GetOptionalOption(options, "service-name") ?? "LanAdminServer";
+
+        ServiceManager.StopServiceIfExists(serviceName);
+
+        TerminateProcesses("LanAdmin.Server", Path.Combine(installDir, "server", "LanAdmin.Server.exe"));
+        TerminateProcesses("LanAdmin.Console", Path.Combine(installDir, "console", "LanAdmin.Console.exe"));
 
         return 0;
     }
@@ -199,6 +228,51 @@ internal static class Program
         if (!File.Exists(path))
         {
             throw new FileNotFoundException("Required file was not found.", path);
+        }
+    }
+
+    private static void TerminateProcesses(string processName, string executablePath)
+    {
+        var normalizedExecutablePath = Path.GetFullPath(executablePath);
+
+        foreach (var process in Process.GetProcessesByName(processName))
+        {
+            try
+            {
+                if (process.Id == Environment.ProcessId || process.HasExited)
+                {
+                    continue;
+                }
+
+                var mainModulePath = TryGetProcessPath(process);
+                if (mainModulePath is not null &&
+                    !string.Equals(
+                        Path.GetFullPath(mainModulePath),
+                        normalizedExecutablePath,
+                        StringComparison.OrdinalIgnoreCase))
+                {
+                    continue;
+                }
+
+                process.Kill(entireProcessTree: true);
+                process.WaitForExit(10000);
+            }
+            catch (InvalidOperationException)
+            {
+                // Process already exited.
+            }
+        }
+    }
+
+    private static string? TryGetProcessPath(Process process)
+    {
+        try
+        {
+            return process.MainModule?.FileName;
+        }
+        catch
+        {
+            return null;
         }
     }
 
