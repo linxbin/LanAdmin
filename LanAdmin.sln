@@ -10,6 +10,8 @@ Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "LanAgent", "src\LanAgent\La
 EndProject
 Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "LanAdmin.Console", "src\LanAdmin.Console\LanAdmin.Console.csproj", "{7399890E-6D79-4A1B-886D-A7EFD4AD79CC}"
 EndProject
+Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "LanAdmin.SetupWorker", "src\LanAdmin.SetupWorker\LanAdmin.SetupWorker.csproj", "{B3D825D9-A0D7-4CEC-A5CD-19B1A6FA4D9E}"
+EndProject
 Global
 	GlobalSection(SolutionConfigurationPlatforms) = preSolution
 		Debug|Any CPU = Debug|Any CPU
@@ -32,6 +34,10 @@ Global
 		{7399890E-6D79-4A1B-886D-A7EFD4AD79CC}.Debug|Any CPU.Build.0 = Debug|Any CPU
 		{7399890E-6D79-4A1B-886D-A7EFD4AD79CC}.Release|Any CPU.ActiveCfg = Release|Any CPU
 		{7399890E-6D79-4A1B-886D-A7EFD4AD79CC}.Release|Any CPU.Build.0 = Release|Any CPU
+		{B3D825D9-A0D7-4CEC-A5CD-19B1A6FA4D9E}.Debug|Any CPU.ActiveCfg = Debug|Any CPU
+		{B3D825D9-A0D7-4CEC-A5CD-19B1A6FA4D9E}.Debug|Any CPU.Build.0 = Debug|Any CPU
+		{B3D825D9-A0D7-4CEC-A5CD-19B1A6FA4D9E}.Release|Any CPU.ActiveCfg = Release|Any CPU
+		{B3D825D9-A0D7-4CEC-A5CD-19B1A6FA4D9E}.Release|Any CPU.Build.0 = Release|Any CPU
 	EndGlobalSection
 	GlobalSection(SolutionProperties) = preSolution
 		HideSolutionNode = FALSE

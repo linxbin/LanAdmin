@@ -1,9 +1,7 @@
 param(
     [string]$Configuration = "Release",
-    [string]$Output = ".\artifacts\agent",
-    [int]$HeartbeatSeconds = 0,
-    [string]$LogPath,
-    [string]$LogLevel,
+    [string]$Output = ".\artifacts\console",
+    [string]$ServerBaseUrl,
     [string]$RuntimeIdentifier,
     [switch]$SelfContained
 )
@@ -12,7 +10,7 @@ $ErrorActionPreference = "Stop"
 $commonScript = Join-Path $PSScriptRoot "Common.ps1"
 . $commonScript
 
-$project = Join-Path $PSScriptRoot "..\src\LanAgent\LanAgent.csproj"
+$project = Join-Path $PSScriptRoot "..\src\LanAdmin.Console\LanAdmin.Console.csproj"
 $outputPath = Get-OutputPath -RelativePath $Output
 
 $publishArguments = @(
@@ -32,24 +30,16 @@ if ($SelfContained) {
 
 dotnet @publishArguments
 if ($LASTEXITCODE -ne 0) {
-    throw "dotnet publish failed for LanAgent"
+    throw "dotnet publish failed for LanAdmin.Console"
 }
 
 $appSettingsPath = Join-Path $outputPath "appsettings.json"
 Update-JsonFile -Path $appSettingsPath -Mutator {
     param($json)
 
-    if ($HeartbeatSeconds -gt 0) {
-        $json.Agent.HeartbeatSeconds = $HeartbeatSeconds
-    }
-
-    if ($LogPath) {
-        $json.FileLogging.Path = $LogPath
-    }
-
-    if ($LogLevel) {
-        $json.FileLogging.MinimumLevel = $LogLevel
+    if ($ServerBaseUrl) {
+        $json.Console.ServerBaseUrl = $ServerBaseUrl
     }
 }
 
-Write-Host "Published LanAgent to $outputPath"
+Write-Host "Published LanAdmin.Console to $outputPath"

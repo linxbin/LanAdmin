@@ -7,6 +7,7 @@ using LanAdmin.Server;
 using LanAdmin.Server.Data;
 using LanAdmin.Server.Services;
 using Microsoft.Extensions.Logging;
+using Microsoft.Extensions.Options;
 
 var builder = WebApplication.CreateBuilder(args);
 var fileLoggerOptions = builder.Configuration.GetSection("FileLogging").Get<FileLoggerOptions>() ?? new FileLoggerOptions();
@@ -22,8 +23,10 @@ builder.Logging.AddProvider(new FileLoggerProvider(fileLoggerOptions));
 
 builder.Services.Configure<DatabaseOptions>(builder.Configuration.GetSection("Database"));
 builder.Services.Configure<AgentOptions>(builder.Configuration.GetSection("Agent"));
+builder.Services.Configure<BootstrapOptions>(builder.Configuration.GetSection("Bootstrap"));
 builder.Services.AddSingleton<IDeviceRepository, SqliteDeviceRepository>();
 builder.Services.AddHostedService<OfflineDeviceMonitor>();
+builder.Services.AddHostedService<BootstrapDiscoveryService>();
 
 var app = builder.Build();
 
@@ -79,6 +82,17 @@ app.MapPost("/api/devices/{agentId}/assign-group", async (string agentId, Assign
 {
     var updated = await repository.AssignGroupAsync(agentId, request.GroupId, cancellationToken);
     return updated ? Results.Ok() : Results.NotFound();
+});
+
+app.MapGet("/api/bootstrap/agent", (IOptions<BootstrapOptions> bootstrapOptions, IOptions<AgentOptions> agentOptions) =>
+{
+    var serverBaseUrl = bootstrapOptions.Value.ServerBaseUrl.TrimEnd('/');
+    var response = new AgentBootstrapResponse(
+        serverBaseUrl,
+        BuildAgentWebSocketUrl(serverBaseUrl),
+        agentOptions.Value.HeartbeatSeconds);
+
+    return Results.Ok(response);
 });
 
 app.Map("/ws/agent", async context =>
@@ -146,6 +160,23 @@ app.Map("/ws/agent", async context =>
 });
 
 await app.RunAsync();
+
+static string BuildAgentWebSocketUrl(string serverBaseUrl)
+{
+    var baseUri = new Uri(serverBaseUrl, UriKind.Absolute);
+    var builder = new UriBuilder(baseUri)
+    {
+        Scheme = string.Equals(baseUri.Scheme, "https", StringComparison.OrdinalIgnoreCase) ? "wss" : "ws",
+        Path = "/ws/agent"
+    };
+
+    if ((builder.Scheme == "ws" && baseUri.Port == 80) || (builder.Scheme == "wss" && baseUri.Port == 443))
+    {
+        builder.Port = -1;
+    }
+
+    return builder.Uri.ToString();
+}
 
 static async Task<string?> ReceiveMessageAsync(WebSocket webSocket, byte[] buffer, CancellationToken cancellationToken)
 {
