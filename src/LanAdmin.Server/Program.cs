@@ -63,8 +63,15 @@ app.MapPost("/api/groups", async (CreateGroupRequest request, IDeviceRepository 
         return Results.BadRequest("Group name is required.");
     }
 
-    var group = await repository.CreateGroupAsync(request.Name.Trim(), cancellationToken);
-    return Results.Ok(group);
+    try
+    {
+        var group = await repository.CreateGroupAsync(request.Name.Trim(), cancellationToken);
+        return Results.Ok(group);
+    }
+    catch (InvalidOperationException ex)
+    {
+        return Results.BadRequest(ex.Message);
+    }
 });
 
 app.MapPut("/api/groups/{groupId:long}", async (long groupId, RenameGroupRequest request, IDeviceRepository repository, CancellationToken cancellationToken) =>
@@ -74,8 +81,21 @@ app.MapPut("/api/groups/{groupId:long}", async (long groupId, RenameGroupRequest
         return Results.BadRequest("Group name is required.");
     }
 
-    var group = await repository.RenameGroupAsync(groupId, request.Name.Trim(), cancellationToken);
-    return group is null ? Results.NotFound() : Results.Ok(group);
+    try
+    {
+        var group = await repository.RenameGroupAsync(groupId, request.Name.Trim(), cancellationToken);
+        return group is null ? Results.NotFound() : Results.Ok(group);
+    }
+    catch (InvalidOperationException ex)
+    {
+        return Results.BadRequest(ex.Message);
+    }
+});
+
+app.MapDelete("/api/groups/{groupId:long}", async (long groupId, IDeviceRepository repository, CancellationToken cancellationToken) =>
+{
+    var deleted = await repository.DeleteGroupAsync(groupId, cancellationToken);
+    return deleted ? Results.Ok() : Results.NotFound();
 });
 
 app.MapPost("/api/devices/{agentId}/assign-group", async (string agentId, AssignGroupRequest request, IDeviceRepository repository, CancellationToken cancellationToken) =>

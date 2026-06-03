@@ -276,6 +276,11 @@ public sealed class SqliteDeviceRepository : IDeviceRepository
 
     public async Task<DeviceGroupDto> CreateGroupAsync(string name, CancellationToken cancellationToken)
     {
+        if (await GroupNameExistsAsync(name, excludeGroupId: null, cancellationToken))
+        {
+            throw new InvalidOperationException($"Group '{name}' already exists.");
+        }
+
         var now = DateTimeOffset.UtcNow;
         await using var connection = await OpenConnectionAsync(cancellationToken);
         await using var command = connection.CreateCommand();
@@ -295,6 +300,11 @@ public sealed class SqliteDeviceRepository : IDeviceRepository
 
     public async Task<DeviceGroupDto?> RenameGroupAsync(long groupId, string name, CancellationToken cancellationToken)
     {
+        if (await GroupNameExistsAsync(name, groupId, cancellationToken))
+        {
+            throw new InvalidOperationException($"Group '{name}' already exists.");
+        }
+
         var now = DateTimeOffset.UtcNow;
         await using var connection = await OpenConnectionAsync(cancellationToken);
         await using var command = connection.CreateCommand();
@@ -316,6 +326,74 @@ public sealed class SqliteDeviceRepository : IDeviceRepository
         }
 
         return new DeviceGroupDto(groupId, name, now, now);
+    }
+
+    public async Task<bool> DeleteGroupAsync(long groupId, CancellationToken cancellationToken)
+    {
+        await using var connection = await OpenConnectionAsync(cancellationToken);
+        await using var transaction = (SqliteTransaction)await connection.BeginTransactionAsync(cancellationToken);
+
+        var group = await GetGroupRecordAsync(connection, transaction, groupId, cancellationToken);
+        if (group is null)
+        {
+            await transaction.RollbackAsync(cancellationToken);
+            return false;
+        }
+
+        var affectedDevices = new List<(string AgentId, string HostName)>();
+        await using (var queryDevices = connection.CreateCommand())
+        {
+            queryDevices.Transaction = transaction;
+            queryDevices.CommandText =
+                """
+                SELECT AgentId, HostName
+                FROM Devices
+                WHERE GroupId = $groupId;
+                """;
+            queryDevices.Parameters.AddWithValue("$groupId", groupId);
+
+            await using var reader = await queryDevices.ExecuteReaderAsync(cancellationToken);
+            while (await reader.ReadAsync(cancellationToken))
+            {
+                affectedDevices.Add((reader.GetString(0), reader.GetString(1)));
+            }
+        }
+
+        await using (var clearGroup = connection.CreateCommand())
+        {
+            clearGroup.Transaction = transaction;
+            clearGroup.CommandText =
+                """
+                UPDATE Devices
+                SET GroupId = NULL,
+                    UpdatedAt = $updatedAt
+                WHERE GroupId = $groupId;
+                """;
+            clearGroup.Parameters.AddWithValue("$updatedAt", DateTimeOffset.UtcNow.ToString("O"));
+            clearGroup.Parameters.AddWithValue("$groupId", groupId);
+            await clearGroup.ExecuteNonQueryAsync(cancellationToken);
+        }
+
+        foreach (var device in affectedDevices)
+        {
+            await InsertEventAsync(
+                connection,
+                transaction,
+                device.AgentId,
+                DeviceEventType.GroupChanged,
+                $"Device {device.HostName} removed from deleted group {group.Name}.",
+                DateTimeOffset.UtcNow,
+                cancellationToken);
+        }
+
+        await using var deleteGroup = connection.CreateCommand();
+        deleteGroup.Transaction = transaction;
+        deleteGroup.CommandText = "DELETE FROM DeviceGroups WHERE Id = $groupId;";
+        deleteGroup.Parameters.AddWithValue("$groupId", groupId);
+        var deletedRows = await deleteGroup.ExecuteNonQueryAsync(cancellationToken);
+
+        await transaction.CommitAsync(cancellationToken);
+        return deletedRows > 0;
     }
 
     public async Task<bool> AssignGroupAsync(string agentId, long? groupId, CancellationToken cancellationToken)
@@ -451,6 +529,23 @@ public sealed class SqliteDeviceRepository : IDeviceRepository
         return connection;
     }
 
+    private async Task<bool> GroupNameExistsAsync(string name, long? excludeGroupId, CancellationToken cancellationToken)
+    {
+        await using var connection = await OpenConnectionAsync(cancellationToken);
+        await using var command = connection.CreateCommand();
+        command.CommandText =
+            """
+            SELECT COUNT(1)
+            FROM DeviceGroups
+            WHERE Name = $name AND ($excludeGroupId IS NULL OR Id <> $excludeGroupId);
+            """;
+        command.Parameters.AddWithValue("$name", name);
+        command.Parameters.AddWithValue("$excludeGroupId", excludeGroupId.HasValue ? excludeGroupId.Value : DBNull.Value);
+
+        var count = (long)(await command.ExecuteScalarAsync(cancellationToken) ?? 0L);
+        return count > 0;
+    }
+
     private static void BindCommon(SqliteCommand command, string agentId, string hostName, string ipAddress, string macAddress, string currentUser, string osVersion, string agentVersion, DateTimeOffset timestamp)
     {
         command.Parameters.AddWithValue("$agentId", agentId);
@@ -519,6 +614,21 @@ public sealed class SqliteDeviceRepository : IDeviceRepository
         return new DeviceRecord(reader.GetString(0), reader.GetString(1), (DeviceStatus)reader.GetInt32(2));
     }
 
+    private static async Task<GroupRecord?> GetGroupRecordAsync(SqliteConnection connection, SqliteTransaction transaction, long groupId, CancellationToken cancellationToken)
+    {
+        await using var command = connection.CreateCommand();
+        command.Transaction = transaction;
+        command.CommandText = "SELECT Id, Name FROM DeviceGroups WHERE Id = $groupId;";
+        command.Parameters.AddWithValue("$groupId", groupId);
+        await using var reader = await command.ExecuteReaderAsync(cancellationToken);
+        if (!await reader.ReadAsync(cancellationToken))
+        {
+            return null;
+        }
+
+        return new GroupRecord(reader.GetInt64(0), reader.GetString(1));
+    }
+
     private static async Task ReassignAgentIdentityAsync(
         SqliteConnection connection,
         SqliteTransaction transaction,
@@ -559,4 +669,5 @@ public sealed class SqliteDeviceRepository : IDeviceRepository
     }
 
     private sealed record DeviceRecord(string AgentId, string HostName, DeviceStatus Status);
+    private sealed record GroupRecord(long Id, string Name);
 }

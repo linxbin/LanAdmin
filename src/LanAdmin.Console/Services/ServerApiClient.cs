@@ -50,6 +50,19 @@ public sealed class ServerApiClient
         response.EnsureSuccessStatusCode();
     }
 
+    public async Task RenameGroupAsync(long groupId, string name)
+    {
+        var payload = JsonSerializer.Serialize(new RenameGroupRequest(name), _jsonOptions);
+        using var response = await _httpClient.PutAsync($"/api/groups/{groupId}", new StringContent(payload, Encoding.UTF8, "application/json"));
+        response.EnsureSuccessStatusCode();
+    }
+
+    public async Task DeleteGroupAsync(long groupId)
+    {
+        using var response = await _httpClient.DeleteAsync($"/api/groups/{groupId}");
+        response.EnsureSuccessStatusCode();
+    }
+
     public async Task AssignGroupAsync(string agentId, long? groupId)
     {
         var payload = JsonSerializer.Serialize(new AssignGroupRequest(groupId), _jsonOptions);
