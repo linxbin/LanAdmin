@@ -457,19 +457,23 @@ internal sealed record DeviceSnapshot(
 {
     public static DeviceSnapshot Capture()
     {
+        var networkIdentity = GetPrimaryNetworkIdentity();
         return new DeviceSnapshot(
             Environment.MachineName,
-            GetPrimaryIpAddress(),
-            GetPrimaryMacAddress(),
+            networkIdentity.IpAddress,
+            networkIdentity.MacAddress,
             Environment.UserName,
             Environment.OSVersion.VersionString,
             Assembly.GetExecutingAssembly().GetName().Version?.ToString() ?? "1.0.0");
     }
 
-    private static string GetPrimaryIpAddress()
+    private static NetworkIdentity GetPrimaryNetworkIdentity()
     {
         var interfaces = NetworkInterface.GetAllNetworkInterfaces()
-            .Where(x => x.OperationalStatus == OperationalStatus.Up && x.NetworkInterfaceType != NetworkInterfaceType.Loopback);
+            .Where(x =>
+                x.OperationalStatus == OperationalStatus.Up &&
+                x.NetworkInterfaceType != NetworkInterfaceType.Loopback &&
+                x.NetworkInterfaceType != NetworkInterfaceType.Tunnel);
 
         foreach (var nic in interfaces)
         {
@@ -478,20 +482,24 @@ internal sealed record DeviceSnapshot(
                 .Select(x => x.Address)
                 .FirstOrDefault(x => x.AddressFamily == AddressFamily.InterNetwork && !x.ToString().StartsWith("169.254."));
 
-            if (address is not null)
+            var macAddress = nic.GetPhysicalAddress().ToString();
+            if (address is not null && !string.IsNullOrWhiteSpace(macAddress))
             {
-                return address.ToString();
+                return new NetworkIdentity(address.ToString(), macAddress);
             }
         }
 
-        return "0.0.0.0";
+        foreach (var nic in interfaces)
+        {
+            var macAddress = nic.GetPhysicalAddress().ToString();
+            if (!string.IsNullOrWhiteSpace(macAddress))
+            {
+                return new NetworkIdentity("0.0.0.0", macAddress);
+            }
+        }
+
+        return new NetworkIdentity("0.0.0.0", "UNKNOWN");
     }
 
-    private static string GetPrimaryMacAddress()
-    {
-        var nic = NetworkInterface.GetAllNetworkInterfaces()
-            .FirstOrDefault(x => x.OperationalStatus == OperationalStatus.Up && x.NetworkInterfaceType != NetworkInterfaceType.Loopback);
-
-        return nic?.GetPhysicalAddress().ToString() ?? "UNKNOWN";
-    }
+    private sealed record NetworkIdentity(string IpAddress, string MacAddress);
 }

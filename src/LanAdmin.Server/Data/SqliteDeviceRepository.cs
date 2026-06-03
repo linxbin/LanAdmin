@@ -50,6 +50,9 @@ public sealed class SqliteDeviceRepository : IDeviceRepository
                 FOREIGN KEY(GroupId) REFERENCES DeviceGroups(Id)
             );
 
+            CREATE INDEX IF NOT EXISTS IX_Devices_MacAddress
+            ON Devices(MacAddress);
+
             CREATE TABLE IF NOT EXISTS DeviceEvents (
                 Id INTEGER PRIMARY KEY AUTOINCREMENT,
                 AgentId TEXT NOT NULL,
@@ -67,7 +70,15 @@ public sealed class SqliteDeviceRepository : IDeviceRepository
         await using var connection = await OpenConnectionAsync(cancellationToken);
         await using var transaction = (SqliteTransaction)await connection.BeginTransactionAsync(cancellationToken);
 
-        var existing = await GetDeviceRecordAsync(connection, transaction, message.AgentId, cancellationToken);
+        var existing = await GetDeviceRecordByAgentIdAsync(connection, transaction, message.AgentId, cancellationToken);
+        var mergedByMacAddress = false;
+
+        if (existing is null && HasStableMacAddress(message.MacAddress))
+        {
+            existing = await GetDeviceRecordByMacAddressAsync(connection, transaction, message.MacAddress, cancellationToken);
+            mergedByMacAddress = existing is not null;
+        }
+
         var now = message.ReportedAt.ToUniversalTime();
 
         if (existing is null)
@@ -92,6 +103,11 @@ public sealed class SqliteDeviceRepository : IDeviceRepository
         }
         else
         {
+            if (mergedByMacAddress && !string.Equals(existing.AgentId, message.AgentId, StringComparison.OrdinalIgnoreCase))
+            {
+                await ReassignAgentIdentityAsync(connection, transaction, existing.AgentId, message.AgentId, cancellationToken);
+            }
+
             await using var update = connection.CreateCommand();
             update.Transaction = transaction;
             update.CommandText =
@@ -111,7 +127,19 @@ public sealed class SqliteDeviceRepository : IDeviceRepository
             BindCommon(update, message.AgentId, message.HostName, message.IpAddress, message.MacAddress, message.CurrentUser, message.OsVersion, message.AgentVersion, now);
             await update.ExecuteNonQueryAsync(cancellationToken);
 
-            if (existing.Status == DeviceStatus.Offline)
+            if (mergedByMacAddress)
+            {
+                await InsertEventAsync(
+                    connection,
+                    transaction,
+                    message.AgentId,
+                    DeviceEventType.Registered,
+                    $"Device {message.HostName} re-associated by MAC address {message.MacAddress}.",
+                    now,
+                    cancellationToken);
+            }
+
+            if (existing.Status == DeviceStatus.Offline || mergedByMacAddress)
             {
                 await InsertEventAsync(connection, transaction, message.AgentId, DeviceEventType.Online, $"Device {message.HostName} is online.", now, cancellationToken);
             }
@@ -124,7 +152,7 @@ public sealed class SqliteDeviceRepository : IDeviceRepository
     {
         await using var connection = await OpenConnectionAsync(cancellationToken);
         await using var transaction = (SqliteTransaction)await connection.BeginTransactionAsync(cancellationToken);
-        var existing = await GetDeviceRecordAsync(connection, transaction, message.AgentId, cancellationToken);
+        var existing = await GetDeviceRecordByAgentIdAsync(connection, transaction, message.AgentId, cancellationToken);
         if (existing is null)
         {
             await transaction.CommitAsync(cancellationToken);
@@ -294,7 +322,7 @@ public sealed class SqliteDeviceRepository : IDeviceRepository
     {
         await using var connection = await OpenConnectionAsync(cancellationToken);
         await using var transaction = (SqliteTransaction)await connection.BeginTransactionAsync(cancellationToken);
-        var existing = await GetDeviceRecordAsync(connection, transaction, agentId, cancellationToken);
+        var existing = await GetDeviceRecordByAgentIdAsync(connection, transaction, agentId, cancellationToken);
         if (existing is null)
         {
             await transaction.RollbackAsync(cancellationToken);
@@ -337,6 +365,35 @@ public sealed class SqliteDeviceRepository : IDeviceRepository
 
         await transaction.CommitAsync(cancellationToken);
         return true;
+    }
+
+    public async Task<bool> DeleteDeviceAsync(string agentId, CancellationToken cancellationToken)
+    {
+        await using var connection = await OpenConnectionAsync(cancellationToken);
+        await using var transaction = (SqliteTransaction)await connection.BeginTransactionAsync(cancellationToken);
+        var existing = await GetDeviceRecordByAgentIdAsync(connection, transaction, agentId, cancellationToken);
+        if (existing is null)
+        {
+            await transaction.RollbackAsync(cancellationToken);
+            return false;
+        }
+
+        await using (var deleteEvents = connection.CreateCommand())
+        {
+            deleteEvents.Transaction = transaction;
+            deleteEvents.CommandText = "DELETE FROM DeviceEvents WHERE AgentId = $agentId;";
+            deleteEvents.Parameters.AddWithValue("$agentId", agentId);
+            await deleteEvents.ExecuteNonQueryAsync(cancellationToken);
+        }
+
+        await using var deleteDevice = connection.CreateCommand();
+        deleteDevice.Transaction = transaction;
+        deleteDevice.CommandText = "DELETE FROM Devices WHERE AgentId = $agentId;";
+        deleteDevice.Parameters.AddWithValue("$agentId", agentId);
+        var deletedRows = await deleteDevice.ExecuteNonQueryAsync(cancellationToken);
+
+        await transaction.CommitAsync(cancellationToken);
+        return deletedRows > 0;
     }
 
     public async Task<int> MarkOfflineDevicesAsync(DateTimeOffset threshold, CancellationToken cancellationToken)
@@ -425,11 +482,11 @@ public sealed class SqliteDeviceRepository : IDeviceRepository
         await command.ExecuteNonQueryAsync(cancellationToken);
     }
 
-    private static async Task<DeviceRecord?> GetDeviceRecordAsync(SqliteConnection connection, SqliteTransaction transaction, string agentId, CancellationToken cancellationToken)
+    private static async Task<DeviceRecord?> GetDeviceRecordByAgentIdAsync(SqliteConnection connection, SqliteTransaction transaction, string agentId, CancellationToken cancellationToken)
     {
         await using var command = connection.CreateCommand();
         command.Transaction = transaction;
-        command.CommandText = "SELECT HostName, Status FROM Devices WHERE AgentId = $agentId;";
+        command.CommandText = "SELECT AgentId, HostName, Status FROM Devices WHERE AgentId = $agentId;";
         command.Parameters.AddWithValue("$agentId", agentId);
         await using var reader = await command.ExecuteReaderAsync(cancellationToken);
         if (!await reader.ReadAsync(cancellationToken))
@@ -437,8 +494,69 @@ public sealed class SqliteDeviceRepository : IDeviceRepository
             return null;
         }
 
-        return new DeviceRecord(reader.GetString(0), (DeviceStatus)reader.GetInt32(1));
+        return new DeviceRecord(reader.GetString(0), reader.GetString(1), (DeviceStatus)reader.GetInt32(2));
     }
 
-    private sealed record DeviceRecord(string HostName, DeviceStatus Status);
+    private static async Task<DeviceRecord?> GetDeviceRecordByMacAddressAsync(SqliteConnection connection, SqliteTransaction transaction, string macAddress, CancellationToken cancellationToken)
+    {
+        await using var command = connection.CreateCommand();
+        command.Transaction = transaction;
+        command.CommandText =
+            """
+            SELECT AgentId, HostName, Status
+            FROM Devices
+            WHERE MacAddress = $macAddress
+            ORDER BY UpdatedAt DESC
+            LIMIT 1;
+            """;
+        command.Parameters.AddWithValue("$macAddress", macAddress);
+        await using var reader = await command.ExecuteReaderAsync(cancellationToken);
+        if (!await reader.ReadAsync(cancellationToken))
+        {
+            return null;
+        }
+
+        return new DeviceRecord(reader.GetString(0), reader.GetString(1), (DeviceStatus)reader.GetInt32(2));
+    }
+
+    private static async Task ReassignAgentIdentityAsync(
+        SqliteConnection connection,
+        SqliteTransaction transaction,
+        string existingAgentId,
+        string newAgentId,
+        CancellationToken cancellationToken)
+    {
+        await using var updateEvents = connection.CreateCommand();
+        updateEvents.Transaction = transaction;
+        updateEvents.CommandText =
+            """
+            UPDATE DeviceEvents
+            SET AgentId = $newAgentId
+            WHERE AgentId = $existingAgentId;
+            """;
+        updateEvents.Parameters.AddWithValue("$newAgentId", newAgentId);
+        updateEvents.Parameters.AddWithValue("$existingAgentId", existingAgentId);
+        await updateEvents.ExecuteNonQueryAsync(cancellationToken);
+
+        await using var updateDevice = connection.CreateCommand();
+        updateDevice.Transaction = transaction;
+        updateDevice.CommandText =
+            """
+            UPDATE Devices
+            SET AgentId = $newAgentId
+            WHERE AgentId = $existingAgentId;
+            """;
+        updateDevice.Parameters.AddWithValue("$newAgentId", newAgentId);
+        updateDevice.Parameters.AddWithValue("$existingAgentId", existingAgentId);
+        await updateDevice.ExecuteNonQueryAsync(cancellationToken);
+    }
+
+    private static bool HasStableMacAddress(string macAddress)
+    {
+        return !string.IsNullOrWhiteSpace(macAddress) &&
+               !string.Equals(macAddress, "UNKNOWN", StringComparison.OrdinalIgnoreCase) &&
+               !string.Equals(macAddress, "000000000000", StringComparison.OrdinalIgnoreCase);
+    }
+
+    private sealed record DeviceRecord(string AgentId, string HostName, DeviceStatus Status);
 }

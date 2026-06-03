@@ -61,9 +61,10 @@
                         <DataGridTextColumn Binding="{Binding HostName}" Header="主机名" Width="140" />
                         <DataGridTextColumn Binding="{Binding Status}" Header="状态" Width="80" />
                         <DataGridTextColumn Binding="{Binding IpAddress}" Header="IP" Width="120" />
+                        <DataGridTextColumn Binding="{Binding MacAddress}" Header="MAC" Width="140" />
                         <DataGridTextColumn Binding="{Binding CurrentUser}" Header="用户" Width="120" />
                         <DataGridTextColumn Binding="{Binding GroupName}" Header="分组" Width="120" />
-                        <DataGridTextColumn Binding="{Binding LastSeenAt}" Header="最后心跳" Width="180" />
+                        <DataGridTextColumn Binding="{Binding LastSeenAt, StringFormat={}{0:yyyy-MM-dd HH:mm:ss}}" Header="最后心跳" Width="180" />
                         <DataGridTextColumn Binding="{Binding AgentVersion}" Header="Agent版本" Width="120" />
                     </DataGrid.Columns>
                 </DataGrid>
@@ -98,8 +99,12 @@
                                     Click="AssignGroupButton_Click"
                                     Content="加入分组" />
                             <Button Width="120"
+                                    Margin="0,0,8,0"
                                     Click="ClearGroupButton_Click"
                                     Content="清空分组" />
+                            <Button Width="120"
+                                    Click="DeleteDeviceButton_Click"
+                                    Content="删除设备" />
                         </StackPanel>
                     </StackPanel>
                 </GroupBox>
@@ -111,7 +116,7 @@
                         <DataGrid.Columns>
                             <DataGridTextColumn Binding="{Binding EventType}" Header="事件" Width="110" />
                             <DataGridTextColumn Binding="{Binding Message}" Header="内容" Width="*" />
-                            <DataGridTextColumn Binding="{Binding OccurredAt}" Header="时间" Width="180" />
+                            <DataGridTextColumn Binding="{Binding OccurredAt, StringFormat={}{0:yyyy-MM-dd HH:mm:ss}}" Header="时间" Width="180" />
                         </DataGrid.Columns>
                     </DataGrid>
                 </GroupBox>

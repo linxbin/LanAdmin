@@ -57,6 +57,12 @@ public sealed class ServerApiClient
         response.EnsureSuccessStatusCode();
     }
 
+    public async Task DeleteDeviceAsync(string agentId)
+    {
+        using var response = await _httpClient.DeleteAsync($"/api/devices/{Uri.EscapeDataString(agentId)}");
+        response.EnsureSuccessStatusCode();
+    }
+
     private async Task<IReadOnlyList<T>> GetAsync<T>(string path)
     {
         using var response = await _httpClient.GetAsync(path);

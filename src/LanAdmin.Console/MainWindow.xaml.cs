@@ -10,6 +10,7 @@ namespace LanAdmin.Console;
 
 public partial class MainWindow : Window
 {
+    private static readonly TimeZoneInfo BeijingTimeZone = TimeZoneInfo.FindSystemTimeZoneById("China Standard Time");
     private readonly ServerApiClient _apiClient;
     private readonly ObservableCollection<DeviceDto> _devices = new();
     private readonly ObservableCollection<DeviceEventDto> _events = new();
@@ -46,7 +47,8 @@ public partial class MainWindow : Window
             StatusTextBlock.Text = "加载中...";
             var selectedAgentId = (DevicesDataGrid.SelectedItem as DeviceDto)?.AgentId;
 
-            var devices = await _apiClient.GetDevicesAsync(SearchTextBox.Text);
+            var devices = (await _apiClient.GetDevicesAsync(SearchTextBox.Text))
+                .Select(ToLocalDevice);
             ReplaceItems(_devices, devices);
 
             if (!string.IsNullOrWhiteSpace(selectedAgentId))
@@ -63,12 +65,14 @@ public partial class MainWindow : Window
 
             if (DevicesDataGrid.SelectedItem is DeviceDto device)
             {
-                var events = await _apiClient.GetEventsAsync(device.AgentId);
+                var events = (await _apiClient.GetEventsAsync(device.AgentId))
+                    .Select(ToLocalEvent);
                 ReplaceItems(_events, events);
             }
             else
             {
-                var events = await _apiClient.GetEventsAsync(null);
+                var events = (await _apiClient.GetEventsAsync(null))
+                    .Select(ToLocalEvent);
                 ReplaceItems(_events, events);
             }
 
@@ -99,7 +103,8 @@ public partial class MainWindow : Window
 
         try
         {
-            var events = await _apiClient.GetEventsAsync(device.AgentId);
+            var events = (await _apiClient.GetEventsAsync(device.AgentId))
+                .Select(ToLocalEvent);
             ReplaceItems(_events, events);
         }
         catch (Exception ex)
@@ -170,6 +175,54 @@ public partial class MainWindow : Window
         {
             MessageBox.Show(this, ex.Message, "分组操作失败", MessageBoxButton.OK, MessageBoxImage.Error);
         }
+    }
+
+    private async void DeleteDeviceButton_Click(object sender, RoutedEventArgs e)
+    {
+        if (DevicesDataGrid.SelectedItem is not DeviceDto device)
+        {
+            MessageBox.Show(this, "请先选择设备。", "提示", MessageBoxButton.OK, MessageBoxImage.Information);
+            return;
+        }
+
+        var result = MessageBox.Show(
+            this,
+            $"确认删除设备 {device.HostName} ({device.AgentId}) 吗？\n这会同时删除该设备的事件记录。",
+            "删除设备",
+            MessageBoxButton.YesNo,
+            MessageBoxImage.Warning);
+
+        if (result != MessageBoxResult.Yes)
+        {
+            return;
+        }
+
+        try
+        {
+            await _apiClient.DeleteDeviceAsync(device.AgentId);
+            _events.Clear();
+            await RefreshAsync();
+        }
+        catch (Exception ex)
+        {
+            MessageBox.Show(this, ex.Message, "删除设备失败", MessageBoxButton.OK, MessageBoxImage.Error);
+        }
+    }
+
+    private static DeviceDto ToLocalDevice(DeviceDto device)
+    {
+        return device with
+        {
+            LastSeenAt = TimeZoneInfo.ConvertTime(device.LastSeenAt, BeijingTimeZone)
+        };
+    }
+
+    private static DeviceEventDto ToLocalEvent(DeviceEventDto deviceEvent)
+    {
+        return deviceEvent with
+        {
+            OccurredAt = TimeZoneInfo.ConvertTime(deviceEvent.OccurredAt, BeijingTimeZone)
+        };
     }
 
     private static void ReplaceItems<T>(ObservableCollection<T> target, IEnumerable<T> source)

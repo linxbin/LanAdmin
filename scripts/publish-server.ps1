@@ -45,6 +45,17 @@ if ($LASTEXITCODE -ne 0) {
     throw "dotnet publish failed for LanAdmin.Server"
 }
 
+$runtimeDataDirectory = Join-Path $outputPath "data"
+$runtimeDatabasePath = Join-Path $runtimeDataDirectory "lanadmin.db"
+if (Test-Path $runtimeDatabasePath) {
+    Remove-Item -LiteralPath $runtimeDatabasePath -Force
+}
+
+$runtimeLogsDirectory = Join-Path $outputPath "logs"
+if (Test-Path $runtimeLogsDirectory) {
+    Get-ChildItem -LiteralPath $runtimeLogsDirectory -File | Remove-Item -Force
+}
+
 $appSettingsPath = Join-Path $outputPath "appsettings.json"
 Update-JsonFile -Path $appSettingsPath -Mutator {
     param($json)

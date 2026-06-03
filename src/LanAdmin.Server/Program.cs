@@ -84,6 +84,12 @@ app.MapPost("/api/devices/{agentId}/assign-group", async (string agentId, Assign
     return updated ? Results.Ok() : Results.NotFound();
 });
 
+app.MapDelete("/api/devices/{agentId}", async (string agentId, IDeviceRepository repository, CancellationToken cancellationToken) =>
+{
+    var deleted = await repository.DeleteDeviceAsync(agentId, cancellationToken);
+    return deleted ? Results.Ok() : Results.NotFound();
+});
+
 app.MapGet("/api/bootstrap/agent", (IOptions<BootstrapOptions> bootstrapOptions, IOptions<AgentOptions> agentOptions) =>
 {
     var serverBaseUrl = bootstrapOptions.Value.ServerBaseUrl.TrimEnd('/');
