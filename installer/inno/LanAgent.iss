@@ -43,6 +43,55 @@ Filename: "{app}\tools\LanAdmin.SetupWorker.exe"; Parameters: "remove-service --
 const
   BM_CLICK = $00F5;
 
+function GetUpgradeLogPath(): string;
+begin
+  Result := ExpandConstant('{commonappdata}\LanAdmin\Logs\SetupWorker-upgrade.log');
+end;
+
+function GetInstalledWorkerPath(): string;
+begin
+  Result := ExpandConstant('{app}\tools\LanAdmin.SetupWorker.exe');
+end;
+
+function GetBootstrapCacheDir(): string;
+begin
+  Result := ExpandConstant('{commonappdata}\LanAdmin\InstallerCache');
+end;
+
+function GetBootstrapWorkerPath(): string;
+begin
+  Result := GetBootstrapCacheDir() + '\LanAdmin.SetupWorker.bootstrap.exe';
+end;
+
+function HasExistingAgentInstallation(): Boolean;
+begin
+  Result :=
+    FileExists(GetInstalledWorkerPath()) or
+    FileExists(ExpandConstant('{app}\LanAgent.exe'));
+end;
+
+function StageBootstrapWorker(var WorkerPath: string): Boolean;
+var
+  TemporaryWorkerPath: string;
+begin
+  Result := False;
+  ExtractTemporaryFile('LanAdmin.SetupWorker.bootstrap.exe');
+  TemporaryWorkerPath := ExpandConstant('{tmp}\LanAdmin.SetupWorker.bootstrap.exe');
+  WorkerPath := GetBootstrapWorkerPath();
+
+  if not ForceDirectories(GetBootstrapCacheDir()) then
+  begin
+    exit;
+  end;
+
+  if FileExists(WorkerPath) and not DeleteFile(WorkerPath) then
+  begin
+    exit;
+  end;
+
+  Result := CopyFile(TemporaryWorkerPath, WorkerPath, False);
+end;
+
 function PostMessage(hWnd: Integer; Msg: Integer; wParam: Integer; lParam: Integer): Boolean;
   external 'PostMessageW@user32.dll stdcall';
 
@@ -56,27 +105,52 @@ end;
 
 function PrepareToInstall(var NeedsRestart: Boolean): String;
 var
-  TemporaryWorkerPath: string;
+  WorkerPath: string;
   ResultCode: Integer;
+  ExecErrorCode: Integer;
 begin
   Result := '';
-  ExtractTemporaryFile('LanAdmin.SetupWorker.bootstrap.exe');
-  TemporaryWorkerPath := ExpandConstant('{tmp}\LanAdmin.SetupWorker.bootstrap.exe');
+  ExecErrorCode := 0;
+
+  if not HasExistingAgentInstallation() then
+  begin
+    exit;
+  end;
+
+  if FileExists(GetInstalledWorkerPath()) then
+  begin
+    WorkerPath := GetInstalledWorkerPath();
+  end
+  else if not StageBootstrapWorker(WorkerPath) then
+  begin
+    Result :=
+      'Failed to stage LanAgent upgrade helper. ' +
+      'Expected worker path: ' + GetBootstrapWorkerPath() + '. ' +
+      'Check directory permissions for ' + GetBootstrapCacheDir() + '.';
+    exit;
+  end;
 
   if not Exec(
-      TemporaryWorkerPath,
-      'prepare-agent-upgrade --install-dir "' + ExpandConstant('{app}') + '" --service-name "{#AgentServiceName}" --process-name "{#AgentServiceName}"',
+      WorkerPath,
+      'prepare-agent-upgrade --install-dir "' + ExpandConstant('{app}') + '" --service-name "{#AgentServiceName}" --process-name "{#AgentServiceName}" --log-path "' + GetUpgradeLogPath() + '"',
       ExpandConstant('{app}'),
       SW_HIDE,
       ewWaitUntilTerminated,
       ResultCode) then
   begin
-    Result := 'Failed to prepare LanAgent for upgrade.';
+    ExecErrorCode := DLLGetLastError();
+    Result :=
+      'Failed to prepare LanAgent for upgrade. ' +
+      'Windows error code: ' + IntToStr(ExecErrorCode) + '. ' +
+      'Worker path: ' + WorkerPath + '. ' +
+      'Check security software and review log if present: ' + GetUpgradeLogPath();
     exit;
   end;
 
   if ResultCode <> 0 then
   begin
-    Result := 'LanAgent upgrade preparation exited with code ' + IntToStr(ResultCode) + '.';
+    Result :=
+      'LanAgent upgrade preparation exited with code ' + IntToStr(ResultCode) + '. ' +
+      'Review log: ' + GetUpgradeLogPath();
   end;
 end;

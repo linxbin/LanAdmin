@@ -74,6 +74,9 @@
                                               IsExpanded="{Binding IsExpanded, Mode=TwoWay}">
                                         <Expander.Header>
                                             <DockPanel LastChildFill="False">
+                                                <CheckBox Margin="0,0,8,0"
+                                                          VerticalAlignment="Center"
+                                                          IsChecked="{Binding AreAllDevicesChecked, Mode=TwoWay, UpdateSourceTrigger=PropertyChanged}" />
                                                 <TextBlock FontWeight="SemiBold" Text="{Binding DisplayName}" />
                                                 <TextBlock Margin="12,0,0,0"
                                                            Foreground="#4B5563"
@@ -83,18 +86,30 @@
 
                                         <DataGrid AutoGenerateColumns="False"
                                                   HeadersVisibility="Column"
-                                                  IsReadOnly="True"
+                                                  IsReadOnly="False"
                                                   ItemsSource="{Binding Devices}"
-                                                  SelectionChanged="GroupDevicesDataGrid_SelectionChanged"
                                                   Tag="{Binding}">
+                                            <DataGrid.RowStyle>
+                                                <Style TargetType="DataGridRow">
+                                                    <Setter Property="IsSelected" Value="{Binding IsSelected, Mode=TwoWay}" />
+                                                </Style>
+                                            </DataGrid.RowStyle>
                                             <DataGrid.Columns>
-                                                <DataGridTextColumn Binding="{Binding HostName}" Header="主机名" Width="140" />
-                                                <DataGridTextColumn Binding="{Binding Status}" Header="状态" Width="80" />
-                                                <DataGridTextColumn Binding="{Binding IpAddress}" Header="IP" Width="120" />
-                                                <DataGridTextColumn Binding="{Binding MacAddress}" Header="MAC" Width="140" />
-                                                <DataGridTextColumn Binding="{Binding CurrentUser}" Header="用户" Width="120" />
-                                                <DataGridTextColumn Binding="{Binding LastSeenAt, StringFormat={}{0:yyyy-MM-dd HH:mm:ss}}" Header="最后心跳" Width="180" />
-                                                <DataGridTextColumn Binding="{Binding AgentVersion}" Header="Agent版本" Width="120" />
+                                                <DataGridTemplateColumn Header="选择" Width="60">
+                                                    <DataGridTemplateColumn.CellTemplate>
+                                                        <DataTemplate>
+                                                            <CheckBox HorizontalAlignment="Center"
+                                                                      IsChecked="{Binding IsChecked, Mode=TwoWay, UpdateSourceTrigger=PropertyChanged}" />
+                                                        </DataTemplate>
+                                                    </DataGridTemplateColumn.CellTemplate>
+                                                </DataGridTemplateColumn>
+                                                <DataGridTextColumn Binding="{Binding HostName}" Header="主机名" IsReadOnly="True" Width="140" />
+                                                <DataGridTextColumn Binding="{Binding Status}" Header="状态" IsReadOnly="True" Width="80" />
+                                                <DataGridTextColumn Binding="{Binding IpAddress}" Header="IP" IsReadOnly="True" Width="120" />
+                                                <DataGridTextColumn Binding="{Binding MacAddress}" Header="MAC" IsReadOnly="True" Width="140" />
+                                                <DataGridTextColumn Binding="{Binding CurrentUser}" Header="用户" IsReadOnly="True" Width="120" />
+                                                <DataGridTextColumn Binding="{Binding LastSeenAt, StringFormat={}{0:yyyy-MM-dd HH:mm:ss}}" Header="最后心跳" IsReadOnly="True" Width="180" />
+                                                <DataGridTextColumn Binding="{Binding AgentVersion}" Header="Agent版本" IsReadOnly="True" Width="120" />
                                             </DataGrid.Columns>
                                         </DataGrid>
                                     </Expander>
@@ -121,6 +136,11 @@
                                    Margin="0,0,0,12"
                                    Foreground="#4B5563"
                                    Text="未选中设备" />
+
+                        <TextBlock x:Name="SelectedDeviceCountTextBlock"
+                                   Margin="0,0,0,12"
+                                   Foreground="#4B5563"
+                                   Text="当前已勾选 0 台设备" />
 
                         <TextBlock Margin="0,0,0,6" Text="选中设备加入分组" />
                         <ComboBox x:Name="GroupsComboBox"

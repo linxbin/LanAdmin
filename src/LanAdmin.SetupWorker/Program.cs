@@ -9,6 +9,7 @@ internal static class Program
     private const string DefaultServerServiceDisplayName = "LanAdmin Server";
     private const string DefaultAgentServiceDisplayName = "LanAdmin Agent";
     private const string LogFileName = "LanAdmin.SetupWorker.log";
+    private static string? _explicitLogPath;
 
     [STAThread]
     private static int Main(string[] args)
@@ -22,6 +23,7 @@ internal static class Program
 
             var command = args[0].Trim().ToLowerInvariant();
             var options = ParseOptions(args.Skip(1).ToArray());
+            _explicitLogPath = GetOptionalOption(options, "log-path");
 
             return command switch
             {
@@ -280,7 +282,7 @@ internal static class Program
     {
         try
         {
-            var path = Path.Combine(Path.GetTempPath(), LogFileName);
+            var path = ResolveLogPath();
             var lines = new[]
             {
                 $"[{DateTimeOffset.Now:O}] {exception}",
@@ -293,5 +295,21 @@ internal static class Program
         {
             // Best-effort logging only.
         }
+    }
+
+    private static string ResolveLogPath()
+    {
+        if (!string.IsNullOrWhiteSpace(_explicitLogPath))
+        {
+            var explicitDirectory = Path.GetDirectoryName(_explicitLogPath);
+            if (!string.IsNullOrWhiteSpace(explicitDirectory))
+            {
+                Directory.CreateDirectory(explicitDirectory);
+            }
+
+            return _explicitLogPath;
+        }
+
+        return Path.Combine(Path.GetTempPath(), LogFileName);
     }
 }
