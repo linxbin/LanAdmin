@@ -447,7 +447,7 @@ public partial class MainWindow : Window
         if (checkedDevices.Count == 1)
         {
             var checkedDevice = checkedDevices[0];
-            SelectedDeviceTextBlock.Text = $"当前勾选设备: {checkedDevice.HostName} | IP: {checkedDevice.IpAddress} | 状态: {checkedDevice.Status} | 运行时长: {FormatUptime(checkedDevice.UptimeSeconds)}";
+            SelectedDeviceTextBlock.Text = $"当前勾选设备: {checkedDevice.HostName} | IP: {checkedDevice.IpAddress} | 状态: {FormatDeviceStatus(checkedDevice.Status)} | 运行时长: {FormatUptime(checkedDevice.UptimeSeconds)}";
             CurrentDeviceGroupTextBlock.Text = $"{checkedDevice.HostName} 当前所属分组: {GetEffectiveGroupName(checkedDevice)} | 关机阈值: {checkedDevice.ShutdownThresholdDays} 天";
             return;
         }
@@ -459,7 +459,7 @@ public partial class MainWindow : Window
             return;
         }
 
-        SelectedDeviceTextBlock.Text = $"当前设备: {device.HostName} | IP: {device.IpAddress} | 状态: {device.Status} | 运行时长: {FormatUptime(device.UptimeSeconds)}";
+        SelectedDeviceTextBlock.Text = $"当前设备: {device.HostName} | IP: {device.IpAddress} | 状态: {FormatDeviceStatus(device.Status)} | 运行时长: {FormatUptime(device.UptimeSeconds)}";
         CurrentDeviceGroupTextBlock.Text = $"{device.HostName} 当前所属分组: {GetEffectiveGroupName(device)} | 关机阈值: {device.ShutdownThresholdDays} 天";
     }
 
@@ -770,6 +770,11 @@ public partial class MainWindow : Window
         return $"{Math.Max(0, (int)uptime.TotalMinutes)}分钟";
     }
 
+    private static string FormatDeviceStatus(DeviceStatus status)
+    {
+        return status == DeviceStatus.Online ? "在线" : "离线";
+    }
+
     private static DeviceDto ToBeijingDevice(DeviceDto device)
     {
         return device with
@@ -860,6 +865,8 @@ public partial class MainWindow : Window
 
         public DeviceStatus Status => Device.Status;
 
+        public string StatusDisplay => FormatDeviceStatus(Device.Status);
+
         public string IpAddress => Device.IpAddress;
 
         public string MacAddress => Device.MacAddress;
@@ -926,6 +933,12 @@ public partial class MainWindow : Window
         public string Summary { get; }
 
         public ObservableCollection<DeviceRowViewModel> Devices { get; }
+
+        public bool HasDevices => Devices.Count > 0;
+
+        public Visibility DevicesVisibility => HasDevices ? Visibility.Visible : Visibility.Collapsed;
+
+        public Visibility EmptyStateVisibility => HasDevices ? Visibility.Collapsed : Visibility.Visible;
 
         public bool IsExpanded { get; set; }
 

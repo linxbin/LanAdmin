@@ -28,15 +28,17 @@ internal static class AgentNotifierApplication
 
 internal sealed class AgentNotifierContext : ApplicationContext
 {
-    private static readonly TimeSpan ReminderInterval = TimeSpan.FromDays(1);
+    private static readonly TimeSpan AutomaticReminderInterval = TimeSpan.FromDays(1);
     private readonly System.Windows.Forms.Timer _timer;
     private readonly Control _dispatcher;
     private readonly EventWaitHandle _manualReminderSignal;
     private readonly RegisteredWaitHandle _manualReminderRegistration;
+    private DateTimeOffset? _lastAutomaticReminderShownAt;
     private ShutdownReminderForm? _activeReminder;
 
     public AgentNotifierContext()
     {
+        _lastAutomaticReminderShownAt = AgentAutomaticReminderStateStore.Load().LastShownAt;
         _dispatcher = new Control();
         _dispatcher.CreateControl();
         _manualReminderSignal = AgentManualReminderSignal.OpenOrCreate();
@@ -87,14 +89,23 @@ internal sealed class AgentNotifierContext : ApplicationContext
             return;
         }
 
+        var receiptState = AgentManualReminderReceiptStateStore.Load();
+        if (string.Equals(receiptState.LastHandledCommandId, request.CommandId, StringComparison.OrdinalIgnoreCase))
+        {
+            return;
+        }
+
         var state = AgentNotifierStateStore.Load();
         if (state is null)
         {
             return;
         }
 
-        ShowReminder(state, updateReminderState: false);
+        AgentManualReminderReceiptStateStore.Save(new AgentManualReminderReceiptState(
+            request.CommandId,
+            DateTimeOffset.UtcNow));
         AgentManualReminderRequestStore.Clear();
+        ShowReminder(state);
     }
 
     private void EvaluateReminder()
@@ -122,23 +133,19 @@ internal sealed class AgentNotifierContext : ApplicationContext
             return;
         }
 
-        var reminderState = AgentReminderStateStore.Load();
-        if (reminderState.LastShownAt.HasValue && now - reminderState.LastShownAt.Value < ReminderInterval)
+        var lastShownAt = _lastAutomaticReminderShownAt ?? AgentAutomaticReminderStateStore.Load().LastShownAt;
+        if (lastShownAt.HasValue && now - lastShownAt.Value < AutomaticReminderInterval)
         {
             return;
         }
 
-        ShowReminder(state, updateReminderState: true);
+        _lastAutomaticReminderShownAt = now;
+        AgentAutomaticReminderStateStore.Save(new AgentAutomaticReminderState(now));
+        ShowReminder(state);
     }
 
-    private void ShowReminder(AgentNotifierState state, bool updateReminderState)
+    private void ShowReminder(AgentNotifierState state)
     {
-        var now = DateTimeOffset.UtcNow;
-        if (updateReminderState)
-        {
-            AgentReminderStateStore.Save(new AgentReminderState(now, null));
-        }
-
         _activeReminder = new ShutdownReminderForm(
             state,
             onAcknowledge: () => _activeReminder = null);
@@ -265,6 +272,6 @@ internal sealed class ShutdownReminderForm : Form
 
     private static string BuildDetailText(AgentNotifierState state)
     {
-        return $"已运行：{AgentNotifierFormatting.FormatUptime(state.UptimeSeconds)}\r\n当前关机阈值：{state.ShutdownThresholdDays} 天\r\n请及时关机重启电脑，避免长时间运行造成卡顿";
+        return $"已运行：{AgentNotifierFormatting.FormatUptime(state.UptimeSeconds)}\r\n请及时关机重启电脑，避免长时间运行造成卡顿";
     }
 }

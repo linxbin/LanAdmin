@@ -10,13 +10,16 @@ internal sealed record AgentNotifierState(
     int ShutdownThresholdDays,
     DateTimeOffset LastUpdatedAt);
 
-internal sealed record AgentReminderState(
-    DateTimeOffset? LastShownAt,
-    DateTimeOffset? SnoozeUntil);
+internal sealed record AgentAutomaticReminderState(
+    DateTimeOffset? LastShownAt);
 
 internal sealed record AgentManualReminderRequest(
     string CommandId,
     DateTimeOffset RequestedAt);
+
+internal sealed record AgentManualReminderReceiptState(
+    string? LastHandledCommandId,
+    DateTimeOffset? LastHandledAt);
 
 internal static class AgentNotifierFormatting
 {
@@ -126,35 +129,70 @@ internal static class AgentManualReminderRequestStore
     }
 }
 
-internal static class AgentReminderStateStore
+internal static class AgentManualReminderReceiptStateStore
 {
     private static readonly string StateDirectory = Path.Combine(
         Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData),
         "LanAdmin",
         "AgentNotifier");
 
-    private static readonly string StatePath = Path.Combine(StateDirectory, "reminder-state.json");
+    private static readonly string StatePath = Path.Combine(StateDirectory, "manual-reminder-receipt.json");
 
-    public static AgentReminderState Load()
+    public static AgentManualReminderReceiptState Load()
     {
         if (!File.Exists(StatePath))
         {
-            return new AgentReminderState(null, null);
+            return new AgentManualReminderReceiptState(null, null);
         }
 
         try
         {
             using var stream = File.Open(StatePath, FileMode.Open, FileAccess.Read, FileShare.ReadWrite | FileShare.Delete);
-            return JsonSerializer.Deserialize<AgentReminderState>(stream, AgentJson.Options)
-                   ?? new AgentReminderState(null, null);
+            return JsonSerializer.Deserialize<AgentManualReminderReceiptState>(stream, AgentJson.Options)
+                   ?? new AgentManualReminderReceiptState(null, null);
         }
         catch
         {
-            return new AgentReminderState(null, null);
+            return new AgentManualReminderReceiptState(null, null);
         }
     }
 
-    public static void Save(AgentReminderState state)
+    public static void Save(AgentManualReminderReceiptState state)
+    {
+        var json = JsonSerializer.Serialize(state, AgentJson.Options);
+        JsonFileWriter.WriteAtomically(StatePath, json);
+    }
+}
+
+internal static class AgentAutomaticReminderStateStore
+{
+    private static readonly string StateDirectory = Path.Combine(
+        Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData),
+        "LanAdmin",
+        "AgentNotifier");
+
+    private static readonly string StatePath = Path.Combine(StateDirectory, "automatic-reminder-state.json");
+
+    public static AgentAutomaticReminderState Load()
+    {
+        if (!File.Exists(StatePath))
+        {
+            return new AgentAutomaticReminderState(null);
+        }
+
+        try
+        {
+            using var stream = File.Open(StatePath, FileMode.Open, FileAccess.Read, FileShare.ReadWrite | FileShare.Delete);
+            return JsonSerializer.Deserialize<AgentAutomaticReminderState>(stream, AgentJson.Options)
+                   ?? new AgentAutomaticReminderState(null);
+        }
+        catch
+        {
+            return new AgentAutomaticReminderState(null);
+        }
+    }
+
+    public static void Save(AgentAutomaticReminderState state)
     {
         var json = JsonSerializer.Serialize(state, AgentJson.Options);
         JsonFileWriter.WriteAtomically(StatePath, json);

@@ -5,6 +5,64 @@
         Height="720"
         Width="1200"
         WindowStartupLocation="CenterScreen">
+    <Window.Resources>
+        <Style x:Key="DeviceGroupExpanderToggleStyle" TargetType="ToggleButton">
+            <Setter Property="Template">
+                <Setter.Value>
+                    <ControlTemplate TargetType="ToggleButton">
+                        <Border Padding="12,10"
+                                Background="#F9FAFB"
+                                BorderBrush="#E5E7EB"
+                                BorderThickness="1"
+                                CornerRadius="6">
+                            <DockPanel LastChildFill="True">
+                                <TextBlock x:Name="ArrowText"
+                                           Margin="0,0,8,0"
+                                           VerticalAlignment="Center"
+                                           FontSize="14"
+                                           Foreground="#374151"
+                                           Text="▶" />
+                                <ContentPresenter VerticalAlignment="Center" />
+                            </DockPanel>
+                        </Border>
+                        <ControlTemplate.Triggers>
+                            <Trigger Property="IsChecked" Value="True">
+                                <Setter TargetName="ArrowText" Property="Text" Value="▼" />
+                            </Trigger>
+                        </ControlTemplate.Triggers>
+                    </ControlTemplate>
+                </Setter.Value>
+            </Setter>
+        </Style>
+
+        <Style x:Key="DeviceGroupExpanderStyle" TargetType="Expander">
+            <Setter Property="Template">
+                <Setter.Value>
+                    <ControlTemplate TargetType="Expander">
+                        <StackPanel>
+                            <ToggleButton x:Name="HeaderSite"
+                                          Focusable="False"
+                                          IsChecked="{Binding IsExpanded, Mode=TwoWay, RelativeSource={RelativeSource TemplatedParent}}"
+                                          Style="{StaticResource DeviceGroupExpanderToggleStyle}">
+                                <ContentPresenter ContentSource="Header" />
+                            </ToggleButton>
+                            <Border x:Name="ExpandSite"
+                                    Margin="0,6,0,0"
+                                    Visibility="Collapsed">
+                                <ContentPresenter ContentSource="Content" />
+                            </Border>
+                        </StackPanel>
+                        <ControlTemplate.Triggers>
+                            <Trigger Property="IsExpanded" Value="True">
+                                <Setter TargetName="ExpandSite" Property="Visibility" Value="Visible" />
+                            </Trigger>
+                        </ControlTemplate.Triggers>
+                    </ControlTemplate>
+                </Setter.Value>
+            </Setter>
+        </Style>
+    </Window.Resources>
+
     <Grid Margin="16">
         <Grid.RowDefinitions>
             <RowDefinition Height="Auto" />
@@ -69,6 +127,7 @@
                             <ItemsControl.ItemTemplate>
                                 <DataTemplate>
                                     <Expander Margin="0,0,0,8"
+                                              Style="{StaticResource DeviceGroupExpanderStyle}"
                                               Collapsed="DeviceGroupExpander_Collapsed"
                                               Expanded="DeviceGroupExpander_Expanded"
                                               IsExpanded="{Binding IsExpanded, Mode=TwoWay}">
@@ -84,36 +143,44 @@
                                             </DockPanel>
                                         </Expander.Header>
 
-                                        <DataGrid AutoGenerateColumns="False"
-                                                  HeadersVisibility="Column"
-                                                  IsReadOnly="False"
-                                                  ItemsSource="{Binding Devices}"
-                                                  Tag="{Binding}">
-                                            <DataGrid.RowStyle>
-                                                <Style TargetType="DataGridRow">
-                                                    <Setter Property="IsSelected" Value="{Binding IsSelected, Mode=TwoWay}" />
-                                                </Style>
-                                            </DataGrid.RowStyle>
-                                            <DataGrid.Columns>
-                                                <DataGridTemplateColumn Header="选择" Width="60">
-                                                    <DataGridTemplateColumn.CellTemplate>
-                                                        <DataTemplate>
-                                                            <CheckBox HorizontalAlignment="Center"
-                                                                      IsChecked="{Binding IsChecked, Mode=TwoWay, UpdateSourceTrigger=PropertyChanged}" />
-                                                        </DataTemplate>
-                                                    </DataGridTemplateColumn.CellTemplate>
-                                                </DataGridTemplateColumn>
-                                                <DataGridTextColumn Binding="{Binding HostName}" Header="主机名" IsReadOnly="True" Width="140" />
-                                                <DataGridTextColumn Binding="{Binding Status}" Header="状态" IsReadOnly="True" Width="80" />
-                                                <DataGridTextColumn Binding="{Binding UptimeDisplay}" Header="运行时长" IsReadOnly="True" Width="130" />
-                                                <DataGridTextColumn Binding="{Binding ShutdownThresholdDisplay}" Header="关机阈值" IsReadOnly="True" Width="110" />
-                                                <DataGridTextColumn Binding="{Binding IpAddress}" Header="IP" IsReadOnly="True" Width="120" />
-                                                <DataGridTextColumn Binding="{Binding MacAddress}" Header="MAC" IsReadOnly="True" Width="140" />
-                                                <DataGridTextColumn Binding="{Binding CurrentUser}" Header="用户" IsReadOnly="True" Width="120" />
-                                                <DataGridTextColumn Binding="{Binding LastSeenAt, StringFormat={}{0:yyyy-MM-dd HH:mm:ss}}" Header="最后心跳" IsReadOnly="True" Width="180" />
-                                                <DataGridTextColumn Binding="{Binding AgentVersion}" Header="Agent版本" IsReadOnly="True" Width="120" />
-                                            </DataGrid.Columns>
-                                        </DataGrid>
+                                        <StackPanel>
+                                            <DataGrid AutoGenerateColumns="False"
+                                                      HeadersVisibility="Column"
+                                                      IsReadOnly="False"
+                                                      ItemsSource="{Binding Devices}"
+                                                      Tag="{Binding}"
+                                                      Visibility="{Binding DevicesVisibility}">
+                                                <DataGrid.RowStyle>
+                                                    <Style TargetType="DataGridRow">
+                                                        <Setter Property="IsSelected" Value="{Binding IsSelected, Mode=TwoWay}" />
+                                                    </Style>
+                                                </DataGrid.RowStyle>
+                                                <DataGrid.Columns>
+                                                    <DataGridTemplateColumn Header="选择" Width="60">
+                                                        <DataGridTemplateColumn.CellTemplate>
+                                                            <DataTemplate>
+                                                                <CheckBox HorizontalAlignment="Center"
+                                                                          IsChecked="{Binding IsChecked, Mode=TwoWay, UpdateSourceTrigger=PropertyChanged}" />
+                                                            </DataTemplate>
+                                                        </DataGridTemplateColumn.CellTemplate>
+                                                    </DataGridTemplateColumn>
+                                                    <DataGridTextColumn Binding="{Binding HostName}" Header="主机名" IsReadOnly="True" Width="140" />
+                                                    <DataGridTextColumn Binding="{Binding StatusDisplay}" Header="状态" IsReadOnly="True" Width="80" />
+                                                    <DataGridTextColumn Binding="{Binding UptimeDisplay}" Header="运行时长" IsReadOnly="True" Width="130" />
+                                                    <DataGridTextColumn Binding="{Binding ShutdownThresholdDisplay}" Header="关机阈值" IsReadOnly="True" Width="110" />
+                                                    <DataGridTextColumn Binding="{Binding IpAddress}" Header="IP" IsReadOnly="True" Width="120" />
+                                                    <DataGridTextColumn Binding="{Binding MacAddress}" Header="MAC" IsReadOnly="True" Width="140" />
+                                                    <DataGridTextColumn Binding="{Binding CurrentUser}" Header="用户" IsReadOnly="True" Width="120" />
+                                                    <DataGridTextColumn Binding="{Binding LastSeenAt, StringFormat={}{0:yyyy-MM-dd HH:mm:ss}}" Header="最后心跳" IsReadOnly="True" Width="180" />
+                                                    <DataGridTextColumn Binding="{Binding AgentVersion}" Header="Agent版本" IsReadOnly="True" Width="120" />
+                                                </DataGrid.Columns>
+                                            </DataGrid>
+
+                                            <TextBlock Margin="12,8,12,12"
+                                                       Foreground="#6B7280"
+                                                       Text="当前分组暂无设备"
+                                                       Visibility="{Binding EmptyStateVisibility}" />
+                                        </StackPanel>
                                     </Expander>
                                 </DataTemplate>
                             </ItemsControl.ItemTemplate>
@@ -122,102 +189,100 @@
                 </Grid>
             </GroupBox>
 
-            <Grid Grid.Column="1">
-                <Grid.RowDefinitions>
-                    <RowDefinition Height="Auto" />
-                    <RowDefinition Height="*" />
-                    <RowDefinition Height="Auto" />
-                </Grid.RowDefinitions>
+            <ScrollViewer Grid.Column="1"
+                          VerticalScrollBarVisibility="Auto"
+                          HorizontalScrollBarVisibility="Disabled">
+                <StackPanel>
+                    <GroupBox Margin="0,0,0,12"
+                              Header="分组管理">
+                        <StackPanel Margin="8">
+                            <TextBlock Margin="0,0,0,4" Text="当前选中设备" />
+                            <TextBlock x:Name="CurrentDeviceGroupTextBlock"
+                                       Margin="0,0,0,12"
+                                       Foreground="#4B5563"
+                                       Text="未选中设备" />
 
-                <GroupBox Grid.Row="0"
-                          Margin="0,0,0,12"
-                          Header="分组管理">
-                    <StackPanel Margin="8">
-                        <TextBlock Margin="0,0,0,4" Text="当前选中设备" />
-                        <TextBlock x:Name="CurrentDeviceGroupTextBlock"
-                                   Margin="0,0,0,12"
-                                   Foreground="#4B5563"
-                                   Text="未选中设备" />
+                            <TextBlock x:Name="SelectedDeviceCountTextBlock"
+                                       Margin="0,0,0,12"
+                                       Foreground="#4B5563"
+                                       Text="当前已勾选 0 台设备" />
 
-                        <TextBlock x:Name="SelectedDeviceCountTextBlock"
-                                   Margin="0,0,0,12"
-                                   Foreground="#4B5563"
-                                   Text="当前已勾选 0 台设备" />
+                            <TextBlock Margin="0,0,0,6" Text="选中设备加入分组" />
+                            <ComboBox x:Name="GroupsComboBox"
+                                      Margin="0,0,0,8"
+                                      DisplayMemberPath="Name"
+                                      SelectedValuePath="Id" />
+                            <StackPanel Margin="0,0,0,12" Orientation="Horizontal">
+                                <Button Width="120"
+                                        Margin="0,0,8,0"
+                                        Click="AssignGroupButton_Click"
+                                        Content="加入分组" />
+                                <Button Width="120"
+                                        Margin="0,0,8,0"
+                                        Click="ClearGroupButton_Click"
+                                        Content="清空分组" />
+                                <Button Width="120"
+                                        Click="DeleteDeviceButton_Click"
+                                        Content="删除设备" />
+                            </StackPanel>
 
-                        <TextBlock Margin="0,0,0,6" Text="选中设备加入分组" />
-                        <ComboBox x:Name="GroupsComboBox"
-                                  Margin="0,0,0,8"
-                                  DisplayMemberPath="Name"
-                                  SelectedValuePath="Id" />
-                        <StackPanel Margin="0,0,0,12" Orientation="Horizontal">
+                            <TextBlock Margin="0,0,0,6" Text="关机阈值（天）" />
+                            <TextBox x:Name="ShutdownThresholdTextBox" Margin="0,0,0,8" />
+                            <StackPanel Margin="0,0,0,12" Orientation="Horizontal">
+                                <Button Width="120"
+                                        Margin="0,0,8,0"
+                                        Click="SetShutdownThresholdButton_Click"
+                                        Content="设置关机阈值" />
+                                <Button Width="120"
+                                        Margin="0,0,8,0"
+                                        Click="PromptShutdownReminderButton_Click"
+                                        Content="手动弹关机提醒" />
+                                <Button Width="120"
+                                        Click="ResetShutdownThresholdButton_Click"
+                                        Content="恢复默认7天" />
+                            </StackPanel>
+
+                            <TextBlock Margin="0,0,0,6" Text="新分组名称" />
+                            <TextBox x:Name="GroupNameTextBox" Margin="0,0,0,8" />
                             <Button Width="120"
-                                    Margin="0,0,8,0"
-                                    Click="AssignGroupButton_Click"
-                                    Content="加入分组" />
-                            <Button Width="120"
-                                    Margin="0,0,8,0"
-                                    Click="ClearGroupButton_Click"
-                                    Content="清空分组" />
-                            <Button Width="120"
-                                    Click="DeleteDeviceButton_Click"
-                                    Content="删除设备" />
+                                    Margin="0,0,0,12"
+                                    HorizontalAlignment="Left"
+                                    Click="CreateGroupButton_Click"
+                                    Content="创建分组" />
+
+                            <TextBlock Margin="0,0,0,6" Text="已有分组" />
+                            <ListBox x:Name="ManageGroupsListBox"
+                                     Height="120"
+                                     Margin="0,0,0,8"
+                                     DisplayMemberPath="Name"
+                                     SelectionChanged="ManageGroupsListBox_SelectionChanged" />
+                            <TextBox x:Name="EditGroupNameTextBox" Margin="0,0,0,8" />
+                            <StackPanel Orientation="Horizontal">
+                                <Button Width="120"
+                                        Margin="0,0,8,0"
+                                        Click="RenameGroupButton_Click"
+                                        Content="重命名分组" />
+                                <Button Width="120"
+                                        Click="DeleteGroupButton_Click"
+                                        Content="删除分组" />
+                            </StackPanel>
                         </StackPanel>
+                    </GroupBox>
 
-                        <TextBlock Margin="0,0,0,6" Text="关机阈值（天）" />
-                        <TextBox x:Name="ShutdownThresholdTextBox" Margin="0,0,0,8" />
-                        <StackPanel Margin="0,0,0,12" Orientation="Horizontal">
-                            <Button Width="120"
-                                    Margin="0,0,8,0"
-                                    Click="SetShutdownThresholdButton_Click"
-                                    Content="设置关机阈值" />
-                            <Button Width="120"
-                                    Margin="0,0,8,0"
-                                    Click="PromptShutdownReminderButton_Click"
-                                    Content="手动弹关机提醒" />
-                            <Button Width="120"
-                                    Click="ResetShutdownThresholdButton_Click"
-                                    Content="恢复默认7天" />
-                        </StackPanel>
-
-                        <TextBlock Margin="0,0,0,6" Text="新分组名称" />
-                        <TextBox x:Name="GroupNameTextBox" Margin="0,0,0,8" />
-                        <Button Width="120"
-                                Margin="0,0,0,12"
-                                HorizontalAlignment="Left"
-                                Click="CreateGroupButton_Click"
-                                Content="创建分组" />
-
-                        <TextBlock Margin="0,0,0,6" Text="已有分组" />
-                        <ListBox x:Name="ManageGroupsListBox"
-                                 Height="120"
-                                 Margin="0,0,0,8"
-                                 DisplayMemberPath="Name"
-                                 SelectionChanged="ManageGroupsListBox_SelectionChanged" />
-                        <TextBox x:Name="EditGroupNameTextBox" Margin="0,0,0,8" />
-                        <StackPanel Orientation="Horizontal">
-                            <Button Width="120"
-                                    Margin="0,0,8,0"
-                                    Click="RenameGroupButton_Click"
-                                    Content="重命名分组" />
-                            <Button Width="120"
-                                    Click="DeleteGroupButton_Click"
-                                    Content="删除分组" />
-                        </StackPanel>
-                    </StackPanel>
-                </GroupBox>
-
-                <GroupBox Grid.Row="1" Header="设备事件记录">
-                    <DataGrid x:Name="EventsDataGrid"
-                              AutoGenerateColumns="False"
-                              IsReadOnly="True">
-                        <DataGrid.Columns>
-                            <DataGridTextColumn Binding="{Binding EventType}" Header="事件" Width="110" />
-                            <DataGridTextColumn Binding="{Binding Message}" Header="内容" Width="*" />
-                            <DataGridTextColumn Binding="{Binding OccurredAt, StringFormat={}{0:yyyy-MM-dd HH:mm:ss}}" Header="时间" Width="180" />
-                        </DataGrid.Columns>
-                    </DataGrid>
-                </GroupBox>
-            </Grid>
+                    <GroupBox Header="设备事件记录">
+                        <DataGrid x:Name="EventsDataGrid"
+                                  Height="280"
+                                  AutoGenerateColumns="False"
+                                  IsReadOnly="True">
+                            <DataGrid.Columns>
+                                <DataGridTextColumn Binding="{Binding EventType}" Header="事件" Width="110" />
+                                <DataGridTextColumn Binding="{Binding Message}" Header="内容" Width="*" />
+                                <DataGridTextColumn Binding="{Binding OccurredAt, StringFormat={}{0:yyyy-MM-dd HH:mm:ss}}" Header="时间" Width="180" />
+                            </DataGrid.Columns>
+                        </DataGrid>
+                    </GroupBox>
+                </StackPanel>
+            </ScrollViewer>
         </Grid>
     </Grid>
 </Window>
