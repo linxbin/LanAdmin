@@ -28,7 +28,7 @@ internal static class AgentNotifierApplication
 
 internal sealed class AgentNotifierContext : ApplicationContext
 {
-    private static readonly TimeSpan ReminderInterval = TimeSpan.FromHours(1);
+    private static readonly TimeSpan ReminderInterval = TimeSpan.FromDays(1);
     private readonly System.Windows.Forms.Timer _timer;
     private readonly Control _dispatcher;
     private readonly EventWaitHandle _manualReminderSignal;
@@ -123,11 +123,6 @@ internal sealed class AgentNotifierContext : ApplicationContext
         }
 
         var reminderState = AgentReminderStateStore.Load();
-        if (reminderState.SnoozeUntil.HasValue && reminderState.SnoozeUntil.Value > now)
-        {
-            return;
-        }
-
         if (reminderState.LastShownAt.HasValue && now - reminderState.LastShownAt.Value < ReminderInterval)
         {
             return;
@@ -146,12 +141,7 @@ internal sealed class AgentNotifierContext : ApplicationContext
 
         _activeReminder = new ShutdownReminderForm(
             state,
-            onAcknowledge: () => _activeReminder = null,
-            onSnooze: () =>
-            {
-                AgentReminderStateStore.Save(new AgentReminderState(now, now.Add(ReminderInterval)));
-                _activeReminder = null;
-            });
+            onAcknowledge: () => _activeReminder = null);
         _activeReminder.FormClosed += (_, _) => _activeReminder = null;
         _activeReminder.Show();
     }
@@ -174,12 +164,10 @@ internal sealed class AgentNotifierContext : ApplicationContext
 internal sealed class ShutdownReminderForm : Form
 {
     private readonly Action _onAcknowledge;
-    private readonly Action _onSnooze;
 
-    public ShutdownReminderForm(AgentNotifierState state, Action onAcknowledge, Action onSnooze)
+    public ShutdownReminderForm(AgentNotifierState state, Action onAcknowledge)
     {
         _onAcknowledge = onAcknowledge;
-        _onSnooze = onSnooze;
 
         AutoScaleMode = AutoScaleMode.Font;
         BackColor = Color.White;
@@ -220,8 +208,8 @@ internal sealed class ShutdownReminderForm : Form
             Font = new Font("Microsoft YaHei UI", 14F, FontStyle.Bold),
             ForeColor = Color.FromArgb(185, 28, 28),
             Location = new Point(80, 18),
-            Size = new Size(320, 30),
-            Text = "请及时关机重启电脑"
+            Size = new Size(320, 52),
+            Text = "电脑运行时间过长会导致性能下降，建议重启电脑"
         };
 
         var detailLabel = new Label
@@ -229,29 +217,21 @@ internal sealed class ShutdownReminderForm : Form
             AutoSize = false,
             Font = new Font("Microsoft YaHei UI", 10.5F, FontStyle.Regular),
             ForeColor = Color.FromArgb(127, 29, 29),
-            Location = new Point(80, 56),
-            Size = new Size(320, 90),
+            Location = new Point(80, 74),
+            Size = new Size(320, 72),
             Text = BuildDetailText(state)
         };
 
-        var acknowledgeButton = BuildButton("知道了", new Point(208, 162), filled: false);
+        var acknowledgeButton = BuildButton("知道了", new Point(150, 162), filled: true);
         acknowledgeButton.Click += (_, _) =>
         {
             _onAcknowledge();
             Close();
         };
 
-        var snoozeButton = BuildButton("1小时后提醒", new Point(76, 162), filled: true);
-        snoozeButton.Click += (_, _) =>
-        {
-            _onSnooze();
-            Close();
-        };
-
         borderPanel.Controls.Add(iconBox);
         borderPanel.Controls.Add(titleLabel);
         borderPanel.Controls.Add(detailLabel);
-        borderPanel.Controls.Add(snoozeButton);
         borderPanel.Controls.Add(acknowledgeButton);
         Controls.Add(borderPanel);
     }
