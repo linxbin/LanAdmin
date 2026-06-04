@@ -45,6 +45,7 @@ $setupWorkerScript = Join-Path $PSScriptRoot "publish-setup-worker.ps1"
     -Configuration $Configuration `
     -Output $AgentOutput `
     -HeartbeatSeconds $HeartbeatSeconds `
+    -ServerBaseUrl $ServerBaseUrl `
     -LogPath $AgentLogPath `
     -LogLevel $AgentLogLevel `
     -RuntimeIdentifier $AgentRuntimeIdentifier `

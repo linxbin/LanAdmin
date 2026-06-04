@@ -2,6 +2,7 @@ param(
     [string]$Configuration = "Release",
     [string]$Output = ".\artifacts\agent",
     [int]$HeartbeatSeconds = 0,
+    [string]$ServerBaseUrl = "http://127.0.0.1:5000",
     [string]$LogPath,
     [string]$LogLevel,
     [string]$RuntimeIdentifier,
@@ -48,6 +49,10 @@ Update-JsonFile -Path $appSettingsPath -Mutator {
 
     if ($HeartbeatSeconds -gt 0) {
         $json.Agent.HeartbeatSeconds = $HeartbeatSeconds
+    }
+
+    if ($ServerBaseUrl) {
+        $json.Bootstrap.ServerBaseUrl = $ServerBaseUrl
     }
 
     if ($LogPath) {

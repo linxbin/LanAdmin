@@ -91,6 +91,17 @@ public sealed class ServerApiClient
         response.EnsureSuccessStatusCode();
     }
 
+    public async Task<BatchPromptShutdownReminderResult> PromptShutdownReminderAsync(IReadOnlyList<string> agentIds)
+    {
+        var payload = JsonSerializer.Serialize(new BatchPromptShutdownReminderRequest(agentIds), _jsonOptions);
+        using var response = await _httpClient.PostAsync("/api/devices/prompt-shutdown-reminder-batch", new StringContent(payload, Encoding.UTF8, "application/json"));
+        response.EnsureSuccessStatusCode();
+
+        await using var stream = await response.Content.ReadAsStreamAsync();
+        var result = await JsonSerializer.DeserializeAsync<BatchPromptShutdownReminderResult>(stream, _jsonOptions);
+        return result ?? new BatchPromptShutdownReminderResult(agentIds.Count, 0, agentIds.ToList());
+    }
+
     public async Task DeleteDeviceAsync(string agentId)
     {
         using var response = await _httpClient.DeleteAsync($"/api/devices/{Uri.EscapeDataString(agentId)}");

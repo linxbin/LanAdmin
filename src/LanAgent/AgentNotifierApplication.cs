@@ -1,5 +1,6 @@
 using System.Diagnostics;
 using System.Drawing;
+using System.Threading;
 using System.Windows.Forms;
 using LanAdmin.Contracts;
 
@@ -29,17 +30,71 @@ internal sealed class AgentNotifierContext : ApplicationContext
 {
     private static readonly TimeSpan ReminderInterval = TimeSpan.FromHours(1);
     private readonly System.Windows.Forms.Timer _timer;
+    private readonly Control _dispatcher;
+    private readonly EventWaitHandle _manualReminderSignal;
+    private readonly RegisteredWaitHandle _manualReminderRegistration;
     private ShutdownReminderForm? _activeReminder;
 
     public AgentNotifierContext()
     {
+        _dispatcher = new Control();
+        _dispatcher.CreateControl();
+        _manualReminderSignal = AgentManualReminderSignal.OpenOrCreate();
+        _manualReminderRegistration = ThreadPool.RegisterWaitForSingleObject(
+            _manualReminderSignal,
+            (_, _) =>
+            {
+                try
+                {
+                    if (_dispatcher.IsHandleCreated)
+                    {
+                        _dispatcher.BeginInvoke(new Action(EvaluateManualReminder));
+                    }
+                }
+                catch
+                {
+                    // The notifier is shutting down.
+                }
+            },
+            null,
+            Timeout.Infinite,
+            executeOnlyOnce: false);
+
         _timer = new System.Windows.Forms.Timer
         {
             Interval = (int)TimeSpan.FromSeconds(30).TotalMilliseconds
         };
-        _timer.Tick += (_, _) => EvaluateReminder();
+        _timer.Tick += (_, _) =>
+        {
+            EvaluateManualReminder();
+            EvaluateReminder();
+        };
         _timer.Start();
+        EvaluateManualReminder();
         EvaluateReminder();
+    }
+
+    private void EvaluateManualReminder()
+    {
+        if (_activeReminder is not null && !_activeReminder.IsDisposed)
+        {
+            return;
+        }
+
+        var request = AgentManualReminderRequestStore.Load();
+        if (request is null)
+        {
+            return;
+        }
+
+        var state = AgentNotifierStateStore.Load();
+        if (state is null)
+        {
+            return;
+        }
+
+        ShowReminder(state, updateReminderState: false);
+        AgentManualReminderRequestStore.Clear();
     }
 
     private void EvaluateReminder()
@@ -78,11 +133,16 @@ internal sealed class AgentNotifierContext : ApplicationContext
             return;
         }
 
-        AgentReminderStateStore.Save(reminderState with
+        ShowReminder(state, updateReminderState: true);
+    }
+
+    private void ShowReminder(AgentNotifierState state, bool updateReminderState)
+    {
+        var now = DateTimeOffset.UtcNow;
+        if (updateReminderState)
         {
-            LastShownAt = now,
-            SnoozeUntil = null
-        });
+            AgentReminderStateStore.Save(new AgentReminderState(now, null));
+        }
 
         _activeReminder = new ShutdownReminderForm(
             state,
@@ -101,6 +161,9 @@ internal sealed class AgentNotifierContext : ApplicationContext
         if (disposing)
         {
             _timer.Dispose();
+            _manualReminderRegistration.Unregister(null);
+            _manualReminderSignal.Dispose();
+            _dispatcher.Dispose();
             _activeReminder?.Dispose();
         }
 
@@ -158,7 +221,7 @@ internal sealed class ShutdownReminderForm : Form
             ForeColor = Color.FromArgb(185, 28, 28),
             Location = new Point(80, 18),
             Size = new Size(320, 30),
-            Text = $"电脑已运行超过 {state.ShutdownThresholdDays} 天"
+            Text = "请及时关机重启电脑"
         };
 
         var detailLabel = new Label
@@ -222,6 +285,6 @@ internal sealed class ShutdownReminderForm : Form
 
     private static string BuildDetailText(AgentNotifierState state)
     {
-        return $"已运行：{AgentNotifierFormatting.FormatUptime(state.UptimeSeconds)}\r\n请及时关机重启电脑，避免长时间运行造成卡顿";
+        return $"已运行：{AgentNotifierFormatting.FormatUptime(state.UptimeSeconds)}\r\n当前关机阈值：{state.ShutdownThresholdDays} 天\r\n请及时关机重启电脑，避免长时间运行造成卡顿";
     }
 }

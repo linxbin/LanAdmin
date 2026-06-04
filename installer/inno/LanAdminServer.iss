@@ -26,7 +26,6 @@ RestartApplications=no
 [Files]
 Source: "..\..\artifacts\server\*"; DestDir: "{app}\server"; Flags: recursesubdirs ignoreversion; Excludes: "data\lanadmin.db,logs\*"
 Source: "..\..\artifacts\console\*"; DestDir: "{app}\console"; Flags: recursesubdirs ignoreversion
-Source: "..\..\artifacts\installer\LanAgentSetup.exe"; DestDir: "{app}\agent-package"; Flags: ignoreversion
 Source: "..\..\artifacts\setup-worker\LanAdmin.SetupWorker.exe"; DestDir: "{app}\tools"; Flags: ignoreversion
 Source: "..\..\artifacts\setup-worker\LanAdmin.SetupWorker.exe"; DestName: "LanAdmin.SetupWorker.bootstrap.exe"; Flags: dontcopy
 
@@ -115,8 +114,8 @@ begin
 
   ConsoleUrlPage := CreateInputQueryPage(ListenUrlPage.ID,
     'Console Server Address',
-    'Configure the API address used by the bundled console and agent bootstrap flow.',
-    'This URL will be written into console\appsettings.json and server\appsettings.json. Agents use it during runtime bootstrap after installation.');
+    'Configure the API address used by the bundled console and separately packaged agents.',
+    'This URL will be written into console\appsettings.json and server\appsettings.json. Configure packaged agents to use the same address.');
   ConsoleUrlPage.Add('Console server base URL:', False);
   ConsoleUrlPage.Values[0] := 'http://127.0.0.1:5000';
 

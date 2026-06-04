@@ -1,6 +1,7 @@
 param(
     [string]$Configuration = "Release",
     [int]$HeartbeatSeconds = 30,
+    [string]$ServerBaseUrl = "http://127.0.0.1:5000",
     [string]$RuntimeIdentifier = "win-x64",
     [string]$SetupWorkerRuntimeIdentifier = "win-x64"
 )
@@ -15,6 +16,7 @@ $publishAgentScript = Join-Path $PSScriptRoot "publish-agent.ps1"
 & $publishAgentScript `
     -Configuration $Configuration `
     -HeartbeatSeconds $HeartbeatSeconds `
+    -ServerBaseUrl $ServerBaseUrl `
     -RuntimeIdentifier $RuntimeIdentifier `
     -SelfContained
 

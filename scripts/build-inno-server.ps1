@@ -4,10 +4,8 @@ param(
     [string]$ServerBaseUrl,
     [string]$DatabasePath,
     [int]$OfflineThresholdSeconds = 0,
-    [int]$AgentHeartbeatSeconds = 30,
     [string]$ServerRuntimeIdentifier = "win-x64",
     [string]$ConsoleRuntimeIdentifier = "win-x64",
-    [string]$AgentRuntimeIdentifier = "win-x64",
     [string]$SetupWorkerRuntimeIdentifier = "win-x64"
 )
 
@@ -17,24 +15,27 @@ $commonScript = Join-Path $PSScriptRoot "Common.ps1"
 
 $iscc = Get-InnoSetupCompiler
 
-$publishAllScript = Join-Path $PSScriptRoot "publish-all.ps1"
-& $publishAllScript `
+$publishServerScript = Join-Path $PSScriptRoot "publish-server.ps1"
+& $publishServerScript `
     -Configuration $Configuration `
-    -ServerListenUrl $ServerListenUrl `
+    -ListenUrl $ServerListenUrl `
     -ServerBaseUrl $ServerBaseUrl `
     -DatabasePath $DatabasePath `
     -OfflineThresholdSeconds $OfflineThresholdSeconds `
-    -ServerRuntimeIdentifier $ServerRuntimeIdentifier `
-    -ServerSelfContained `
-    -ConsoleRuntimeIdentifier $ConsoleRuntimeIdentifier `
-    -ConsoleSelfContained `
-    -SetupWorkerRuntimeIdentifier $SetupWorkerRuntimeIdentifier
+    -RuntimeIdentifier $ServerRuntimeIdentifier `
+    -SelfContained
 
-$buildAgentScript = Join-Path $PSScriptRoot "build-inno-agent.ps1"
-& $buildAgentScript `
+$publishConsoleScript = Join-Path $PSScriptRoot "publish-console.ps1"
+& $publishConsoleScript `
     -Configuration $Configuration `
-    -HeartbeatSeconds $AgentHeartbeatSeconds `
-    -RuntimeIdentifier $AgentRuntimeIdentifier
+    -ServerBaseUrl $ServerBaseUrl `
+    -RuntimeIdentifier $ConsoleRuntimeIdentifier `
+    -SelfContained
+
+$publishSetupWorkerScript = Join-Path $PSScriptRoot "publish-setup-worker.ps1"
+& $publishSetupWorkerScript `
+    -Configuration $Configuration `
+    -RuntimeIdentifier $SetupWorkerRuntimeIdentifier
 
 $issPath = Join-Path (Get-ProjectRoot) "installer\inno\LanAdminServer.iss"
 & $iscc $issPath

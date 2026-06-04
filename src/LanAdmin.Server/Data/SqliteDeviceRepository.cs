@@ -589,6 +589,14 @@ public sealed class SqliteDeviceRepository : IDeviceRepository
         return updatedCount;
     }
 
+    public async Task AddDeviceEventAsync(string agentId, DeviceEventType eventType, string message, CancellationToken cancellationToken)
+    {
+        await using var connection = await OpenConnectionAsync(cancellationToken);
+        await using var transaction = (SqliteTransaction)await connection.BeginTransactionAsync(cancellationToken);
+        await InsertEventAsync(connection, transaction, agentId, eventType, message, DateTimeOffset.UtcNow, cancellationToken);
+        await transaction.CommitAsync(cancellationToken);
+    }
+
     public async Task<bool> DeleteDeviceAsync(string agentId, CancellationToken cancellationToken)
     {
         await using var connection = await OpenConnectionAsync(cancellationToken);

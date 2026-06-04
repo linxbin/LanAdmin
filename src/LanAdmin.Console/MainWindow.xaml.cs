@@ -499,6 +499,11 @@ public partial class MainWindow : Window
         return selectedDevice is null ? [] : [selectedDevice];
     }
 
+    private List<DeviceDto> GetDevicesForManualReminderOperation()
+    {
+        return GetDevicesForThresholdOperation();
+    }
+
     private static bool TryGetValidatedGroupName(string rawText, out string? validatedName)
     {
         validatedName = rawText.Trim();
@@ -580,6 +585,45 @@ public partial class MainWindow : Window
         catch (Exception ex)
         {
             MessageBox.Show(this, ex.Message, "设置关机阈值失败", MessageBoxButton.OK, MessageBoxImage.Error);
+        }
+    }
+
+    private async void PromptShutdownReminderButton_Click(object sender, RoutedEventArgs e)
+    {
+        var devices = GetDevicesForManualReminderOperation();
+        if (devices.Count == 0)
+        {
+            MessageBox.Show(this, "请先勾选设备，或单击选中一台设备。", "提示", MessageBoxButton.OK, MessageBoxImage.Information);
+            return;
+        }
+
+        try
+        {
+            var result = await _apiClient.PromptShutdownReminderAsync(devices.Select(device => device.AgentId).ToList());
+            await RefreshAsync();
+
+            if (result.SentCount == 0)
+            {
+                MessageBox.Show(this, "选中的设备当前均不在线，未发送关机提醒。", "提示", MessageBoxButton.OK, MessageBoxImage.Information);
+                return;
+            }
+
+            if (result.OfflineAgentIds.Count == 0)
+            {
+                MessageBox.Show(this, $"已向 {result.SentCount} 台在线设备发送关机提醒。", "提示", MessageBoxButton.OK, MessageBoxImage.Information);
+                return;
+            }
+
+            MessageBox.Show(
+                this,
+                $"已向 {result.SentCount} 台在线设备发送关机提醒，{result.OfflineAgentIds.Count} 台设备未发送（当前离线）。",
+                "提示",
+                MessageBoxButton.OK,
+                MessageBoxImage.Information);
+        }
+        catch (Exception ex)
+        {
+            MessageBox.Show(this, ex.Message, "发送关机提醒失败", MessageBoxButton.OK, MessageBoxImage.Error);
         }
     }
 

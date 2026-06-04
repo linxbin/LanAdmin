@@ -11,6 +11,7 @@ public static class AgentMessageTypes
 public static class ServerMessageTypes
 {
     public const string Configuration = "configuration";
+    public const string ManualShutdownReminder = "manualShutdownReminder";
 }
 
 public sealed record AgentEnvelope(string Type, JsonElement Payload);
@@ -37,3 +38,8 @@ public sealed record AgentConfigurationMessage(
     string AgentId,
     int ShutdownThresholdDays,
     DateTimeOffset ReportedAt);
+
+public sealed record ManualShutdownReminderMessage(
+    string AgentId,
+    string CommandId,
+    DateTimeOffset RequestedAt);

@@ -25,8 +25,8 @@ builder.Services.Configure<DatabaseOptions>(builder.Configuration.GetSection("Da
 builder.Services.Configure<AgentOptions>(builder.Configuration.GetSection("Agent"));
 builder.Services.Configure<BootstrapOptions>(builder.Configuration.GetSection("Bootstrap"));
 builder.Services.AddSingleton<IDeviceRepository, SqliteDeviceRepository>();
+builder.Services.AddSingleton<AgentConnectionRegistry>();
 builder.Services.AddHostedService<OfflineDeviceMonitor>();
-builder.Services.AddHostedService<BootstrapDiscoveryService>();
 
 var app = builder.Build();
 
@@ -156,6 +156,53 @@ app.MapPost("/api/devices/shutdown-threshold-batch", async (BatchSetShutdownThre
     }
 });
 
+app.MapPost("/api/devices/prompt-shutdown-reminder-batch", async (
+    BatchPromptShutdownReminderRequest request,
+    AgentConnectionRegistry connections,
+    IDeviceRepository repository,
+    CancellationToken cancellationToken) =>
+{
+    if (request.AgentIds is null || request.AgentIds.Count == 0)
+    {
+        return Results.BadRequest("At least one device must be selected.");
+    }
+
+    var normalizedAgentIds = request.AgentIds
+        .Where(agentId => !string.IsNullOrWhiteSpace(agentId))
+        .Select(agentId => agentId.Trim())
+        .Distinct(StringComparer.OrdinalIgnoreCase)
+        .ToList();
+
+    if (normalizedAgentIds.Count == 0)
+    {
+        return Results.BadRequest("At least one device must be selected.");
+    }
+
+    var offlineAgentIds = new List<string>();
+    var sentCount = 0;
+
+    foreach (var agentId in normalizedAgentIds)
+    {
+        if (!await connections.SendManualShutdownReminderAsync(agentId, cancellationToken))
+        {
+            offlineAgentIds.Add(agentId);
+            continue;
+        }
+
+        sentCount++;
+        await repository.AddDeviceEventAsync(
+            agentId,
+            DeviceEventType.ManualShutdownReminderRequested,
+            "管理员手动触发了关机提醒。",
+            cancellationToken);
+    }
+
+    return Results.Ok(new BatchPromptShutdownReminderResult(
+        normalizedAgentIds.Count,
+        sentCount,
+        offlineAgentIds));
+});
+
 app.MapDelete("/api/devices/{agentId}", async (string agentId, IDeviceRepository repository, CancellationToken cancellationToken) =>
 {
     var deleted = await repository.DeleteDeviceAsync(agentId, cancellationToken);
@@ -183,58 +230,74 @@ app.Map("/ws/agent", async context =>
 
     using var webSocket = await context.WebSockets.AcceptWebSocketAsync();
     var repository = context.RequestServices.GetRequiredService<IDeviceRepository>();
+    var connections = context.RequestServices.GetRequiredService<AgentConnectionRegistry>();
     var logger = context.RequestServices.GetRequiredService<ILoggerFactory>().CreateLogger("AgentSocket");
 
     var buffer = new byte[16 * 1024];
+    string? connectedAgentId = null;
 
-    while (webSocket.State == WebSocketState.Open)
+    try
     {
-        var payload = await ReceiveMessageAsync(webSocket, buffer, context.RequestAborted);
-        if (payload is null)
+        while (webSocket.State == WebSocketState.Open)
         {
-            break;
-        }
-
-        try
-        {
-            var envelope = JsonSerializer.Deserialize<AgentEnvelope>(payload, JsonDefaults.Options);
-            if (envelope is null)
+            var payload = await ReceiveMessageAsync(webSocket, buffer, context.RequestAborted);
+            if (payload is null)
             {
-                continue;
+                break;
             }
 
-            switch (envelope.Type)
+            try
             {
-                case AgentMessageTypes.Register:
+                var envelope = JsonSerializer.Deserialize<AgentEnvelope>(payload, JsonDefaults.Options);
+                if (envelope is null)
                 {
-                    var message = envelope.Payload.Deserialize<AgentRegisterMessage>(JsonDefaults.Options);
-                    if (message is not null)
-                    {
-                        await repository.UpsertRegistrationAsync(message, context.RequestAborted);
-                        await SendAgentConfigurationAsync(webSocket, repository, message.AgentId, context.RequestAborted);
-                    }
-
-                    break;
+                    continue;
                 }
-                case AgentMessageTypes.Heartbeat:
+
+                switch (envelope.Type)
                 {
-                    var message = envelope.Payload.Deserialize<AgentHeartbeatMessage>(JsonDefaults.Options);
-                    if (message is not null)
+                    case AgentMessageTypes.Register:
                     {
-                        await repository.RecordHeartbeatAsync(message, context.RequestAborted);
-                        await SendAgentConfigurationAsync(webSocket, repository, message.AgentId, context.RequestAborted);
-                    }
+                        var message = envelope.Payload.Deserialize<AgentRegisterMessage>(JsonDefaults.Options);
+                        if (message is not null)
+                        {
+                            connectedAgentId = message.AgentId;
+                            connections.Bind(message.AgentId, webSocket);
+                            await repository.UpsertRegistrationAsync(message, context.RequestAborted);
+                            await SendAgentConfigurationAsync(webSocket, repository, message.AgentId, context.RequestAborted);
+                        }
 
-                    break;
+                        break;
+                    }
+                    case AgentMessageTypes.Heartbeat:
+                    {
+                        var message = envelope.Payload.Deserialize<AgentHeartbeatMessage>(JsonDefaults.Options);
+                        if (message is not null)
+                        {
+                            connectedAgentId ??= message.AgentId;
+                            connections.Bind(message.AgentId, webSocket);
+                            await repository.RecordHeartbeatAsync(message, context.RequestAborted);
+                            await SendAgentConfigurationAsync(webSocket, repository, message.AgentId, context.RequestAborted);
+                        }
+
+                        break;
+                    }
+                    default:
+                        logger.LogWarning("Unknown agent message type: {Type}", envelope.Type);
+                        break;
                 }
-                default:
-                    logger.LogWarning("Unknown agent message type: {Type}", envelope.Type);
-                    break;
+            }
+            catch (JsonException ex)
+            {
+                logger.LogWarning(ex, "Invalid agent payload received.");
             }
         }
-        catch (JsonException ex)
+    }
+    finally
+    {
+        if (!string.IsNullOrWhiteSpace(connectedAgentId))
         {
-            logger.LogWarning(ex, "Invalid agent payload received.");
+            connections.Unbind(connectedAgentId, webSocket);
         }
     }
 });

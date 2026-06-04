@@ -19,7 +19,8 @@ public enum DeviceEventType
     Online = 1,
     Offline = 2,
     GroupChanged = 3,
-    ShutdownThresholdChanged = 4
+    ShutdownThresholdChanged = 4,
+    ManualShutdownReminderRequested = 5
 }
 
 public sealed record DeviceDto(
@@ -60,3 +61,7 @@ public sealed record BatchAssignGroupRequest(IReadOnlyList<string> AgentIds, lon
 public sealed record SetShutdownThresholdRequest(int ShutdownThresholdDays);
 
 public sealed record BatchSetShutdownThresholdRequest(IReadOnlyList<string> AgentIds, int ShutdownThresholdDays);
+
+public sealed record BatchPromptShutdownReminderRequest(IReadOnlyList<string> AgentIds);
+
+public sealed record BatchPromptShutdownReminderResult(int RequestedCount, int SentCount, IReadOnlyList<string> OfflineAgentIds);

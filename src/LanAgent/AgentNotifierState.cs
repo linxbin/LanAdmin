@@ -14,6 +14,10 @@ internal sealed record AgentReminderState(
     DateTimeOffset? LastShownAt,
     DateTimeOffset? SnoozeUntil);
 
+internal sealed record AgentManualReminderRequest(
+    string CommandId,
+    DateTimeOffset RequestedAt);
+
 internal static class AgentNotifierFormatting
 {
     public static string FormatUptime(long uptimeSeconds)
@@ -33,6 +37,22 @@ internal static class AgentNotifierFormatting
     }
 }
 
+internal static class AgentManualReminderSignal
+{
+    private const string SignalName = @"Global\LanAdmin.AgentManualReminder";
+
+    public static EventWaitHandle OpenOrCreate()
+    {
+        return new EventWaitHandle(false, EventResetMode.AutoReset, SignalName);
+    }
+
+    public static void Notify()
+    {
+        using var signal = OpenOrCreate();
+        signal.Set();
+    }
+}
+
 internal static class AgentNotifierStateStore
 {
     private static readonly string StatePath = Path.Combine(AgentStoragePaths.AgentDirectory, "notifier-state.json");
@@ -46,7 +66,7 @@ internal static class AgentNotifierStateStore
 
         try
         {
-            using var stream = File.OpenRead(StatePath);
+            using var stream = File.Open(StatePath, FileMode.Open, FileAccess.Read, FileShare.ReadWrite | FileShare.Delete);
             return JsonSerializer.Deserialize<AgentNotifierState>(stream, AgentJson.Options);
         }
         catch
@@ -57,9 +77,52 @@ internal static class AgentNotifierStateStore
 
     public static void Save(AgentNotifierState state)
     {
-        Directory.CreateDirectory(AgentStoragePaths.AgentDirectory);
         var json = JsonSerializer.Serialize(state, AgentJson.Options);
-        File.WriteAllText(StatePath, json);
+        JsonFileWriter.WriteAtomically(StatePath, json);
+    }
+}
+
+internal static class AgentManualReminderRequestStore
+{
+    private static readonly string StatePath = Path.Combine(AgentStoragePaths.AgentDirectory, "manual-reminder.json");
+
+    public static void Save(AgentManualReminderRequest request)
+    {
+        var json = JsonSerializer.Serialize(request, AgentJson.Options);
+        JsonFileWriter.WriteAtomically(StatePath, json);
+    }
+
+    public static AgentManualReminderRequest? Load()
+    {
+        if (!File.Exists(StatePath))
+        {
+            return null;
+        }
+
+        try
+        {
+            using var stream = File.Open(StatePath, FileMode.Open, FileAccess.Read, FileShare.ReadWrite | FileShare.Delete);
+            return JsonSerializer.Deserialize<AgentManualReminderRequest>(stream, AgentJson.Options);
+        }
+        catch
+        {
+            return null;
+        }
+    }
+
+    public static void Clear()
+    {
+        try
+        {
+            if (File.Exists(StatePath))
+            {
+                File.Delete(StatePath);
+            }
+        }
+        catch
+        {
+            // Best-effort cleanup.
+        }
     }
 }
 
@@ -81,7 +144,7 @@ internal static class AgentReminderStateStore
 
         try
         {
-            using var stream = File.OpenRead(StatePath);
+            using var stream = File.Open(StatePath, FileMode.Open, FileAccess.Read, FileShare.ReadWrite | FileShare.Delete);
             return JsonSerializer.Deserialize<AgentReminderState>(stream, AgentJson.Options)
                    ?? new AgentReminderState(null, null);
         }
@@ -93,8 +156,37 @@ internal static class AgentReminderStateStore
 
     public static void Save(AgentReminderState state)
     {
-        Directory.CreateDirectory(StateDirectory);
         var json = JsonSerializer.Serialize(state, AgentJson.Options);
-        File.WriteAllText(StatePath, json);
+        JsonFileWriter.WriteAtomically(StatePath, json);
+    }
+}
+
+internal static class JsonFileWriter
+{
+    public static void WriteAtomically(string path, string json)
+    {
+        var directory = Path.GetDirectoryName(path);
+        if (!string.IsNullOrWhiteSpace(directory))
+        {
+            Directory.CreateDirectory(directory);
+        }
+
+        var tempPath = path + ".tmp";
+        using (var stream = new FileStream(tempPath, FileMode.Create, FileAccess.Write, FileShare.ReadWrite))
+        using (var writer = new StreamWriter(stream))
+        {
+            writer.Write(json);
+            writer.Flush();
+            stream.Flush(true);
+        }
+
+        if (File.Exists(path))
+        {
+            File.Replace(tempPath, path, destinationBackupFileName: null, ignoreMetadataErrors: true);
+        }
+        else
+        {
+            File.Move(tempPath, path);
+        }
     }
 }
