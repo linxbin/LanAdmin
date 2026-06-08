@@ -9,6 +9,7 @@ internal static class Program
     private const string DefaultServerServiceDisplayName = "LanAdmin Server";
     private const string DefaultAgentServiceDisplayName = "LanAdmin Agent";
     private const string LogFileName = "LanAdmin.SetupWorker.log";
+    private static readonly byte[] AgentBootstrapMarker = "LANADMIN_AGENT_BOOTSTRAP_V1"u8.ToArray();
     private static string? _explicitLogPath;
 
     [STAThread]
@@ -90,6 +91,8 @@ internal static class Program
             DefaultServerServiceDisplayName,
             serverExePath);
 
+        ExportAgentInstallerPackage(installDir, consoleServerBaseUrl);
+
         return 0;
     }
 
@@ -97,10 +100,44 @@ internal static class Program
     {
         var installDir = GetRequiredOption(options, "install-dir");
         var serviceName = GetOptionalOption(options, "service-name") ?? "LanAgent";
+        var hasExplicitBootstrapConfigPath = options.ContainsKey("bootstrap-config-path");
+        var bootstrapConfigPath = ResolveAgentBootstrapConfigPath(options);
+        var installerPath = GetOptionalOption(options, "installer-path");
 
         var agentExePath = Path.Combine(installDir, "LanAgent.exe");
+        var agentConfigPath = Path.Combine(installDir, "appsettings.json");
 
         EnsureFileExists(agentExePath);
+        EnsureFileExists(agentConfigPath);
+
+        if (!string.IsNullOrWhiteSpace(bootstrapConfigPath))
+        {
+            if (hasExplicitBootstrapConfigPath)
+            {
+                EnsureFileExists(bootstrapConfigPath);
+            }
+
+            if (File.Exists(bootstrapConfigPath))
+            {
+                var bootstrap = LoadBootstrapConfig(bootstrapConfigPath);
+                UpdateJsonFile(agentConfigPath, root =>
+                {
+                    GetOrCreateObject(root, "Bootstrap")["ServerBaseUrl"] = bootstrap.ServerBaseUrl;
+                });
+            }
+        }
+
+        if (!string.IsNullOrWhiteSpace(installerPath) && File.Exists(installerPath))
+        {
+            var embeddedBootstrap = TryLoadBootstrapFromInstaller(installerPath);
+            if (embeddedBootstrap is not null)
+            {
+                UpdateJsonFile(agentConfigPath, root =>
+                {
+                    GetOrCreateObject(root, "Bootstrap")["ServerBaseUrl"] = embeddedBootstrap.ServerBaseUrl;
+                });
+            }
+        }
 
         ServiceManager.CreateOrReplaceService(
             serviceName,
@@ -196,6 +233,155 @@ internal static class Program
         }
 
         return value;
+    }
+
+    private static string? ResolveAgentBootstrapConfigPath(IReadOnlyDictionary<string, string> options)
+    {
+        var explicitPath = GetOptionalOption(options, "bootstrap-config-path");
+        if (!string.IsNullOrWhiteSpace(explicitPath))
+        {
+            return explicitPath;
+        }
+
+        var installerDirectory = GetOptionalOption(options, "installer-dir");
+        if (string.IsNullOrWhiteSpace(installerDirectory))
+        {
+            return null;
+        }
+
+        return Path.Combine(installerDirectory, "LanAgent.bootstrap.json");
+    }
+
+    private static void ExportAgentInstallerPackage(string installDir, string serverBaseUrl)
+    {
+        var toolsDir = Path.Combine(installDir, "tools");
+        var packagedAgentSetupPath = Path.Combine(toolsDir, "LanAgentSetup.exe");
+        if (!File.Exists(packagedAgentSetupPath))
+        {
+            return;
+        }
+
+        var exportDir = Path.Combine(installDir, "agent-package");
+        Directory.CreateDirectory(exportDir);
+
+        var exportExePath = Path.Combine(exportDir, "LanAgentSetup.exe");
+        File.Copy(packagedAgentSetupPath, exportExePath, overwrite: true);
+        EmbedBootstrapIntoInstaller(exportExePath, new AgentBootstrapConfig(serverBaseUrl.Trim()));
+    }
+
+    private static AgentBootstrapConfig LoadBootstrapConfig(string path)
+    {
+        var node = JsonNode.Parse(File.ReadAllText(path)) as JsonObject
+                   ?? throw new InvalidOperationException($"Invalid JSON object in {path}");
+
+        var serverBaseUrl = node["ServerBaseUrl"]?.GetValue<string>()?.Trim();
+        if (string.IsNullOrWhiteSpace(serverBaseUrl))
+        {
+            throw new InvalidOperationException($"ServerBaseUrl is required in {path}");
+        }
+
+        return new AgentBootstrapConfig(serverBaseUrl);
+    }
+
+    private static void EmbedBootstrapIntoInstaller(string installerPath, AgentBootstrapConfig config)
+    {
+        RemoveEmbeddedBootstrap(installerPath);
+
+        var payload = JsonSerializer.SerializeToUtf8Bytes(config, new JsonSerializerOptions
+        {
+            WriteIndented = false
+        });
+
+        using var stream = new FileStream(installerPath, FileMode.Append, FileAccess.Write, FileShare.Read);
+        stream.Write(payload, 0, payload.Length);
+        stream.Write(AgentBootstrapMarker, 0, AgentBootstrapMarker.Length);
+        stream.Write(BitConverter.GetBytes(payload.Length), 0, sizeof(int));
+    }
+
+    private static AgentBootstrapConfig? TryLoadBootstrapFromInstaller(string installerPath)
+    {
+        using var stream = new FileStream(installerPath, FileMode.Open, FileAccess.Read, FileShare.ReadWrite);
+        var metadataLength = AgentBootstrapMarker.Length + sizeof(int);
+        if (stream.Length < metadataLength)
+        {
+            return null;
+        }
+
+        stream.Seek(-sizeof(int), SeekOrigin.End);
+        var lengthBuffer = new byte[sizeof(int)];
+        if (stream.Read(lengthBuffer, 0, lengthBuffer.Length) != lengthBuffer.Length)
+        {
+            return null;
+        }
+
+        var payloadLength = BitConverter.ToInt32(lengthBuffer, 0);
+        if (payloadLength <= 0)
+        {
+            return null;
+        }
+
+        var trailerLength = payloadLength + AgentBootstrapMarker.Length + sizeof(int);
+        if (stream.Length < trailerLength)
+        {
+            return null;
+        }
+
+        stream.Seek(-(AgentBootstrapMarker.Length + sizeof(int)), SeekOrigin.End);
+        var markerBuffer = new byte[AgentBootstrapMarker.Length];
+        if (stream.Read(markerBuffer, 0, markerBuffer.Length) != markerBuffer.Length ||
+            !markerBuffer.AsSpan().SequenceEqual(AgentBootstrapMarker))
+        {
+            return null;
+        }
+
+        stream.Seek(-trailerLength, SeekOrigin.End);
+        var payloadBuffer = new byte[payloadLength];
+        if (stream.Read(payloadBuffer, 0, payloadBuffer.Length) != payloadBuffer.Length)
+        {
+            return null;
+        }
+
+        return JsonSerializer.Deserialize<AgentBootstrapConfig>(payloadBuffer)
+               ?? throw new InvalidOperationException($"Invalid embedded bootstrap config in {installerPath}");
+    }
+
+    private static void RemoveEmbeddedBootstrap(string installerPath)
+    {
+        using var stream = new FileStream(installerPath, FileMode.Open, FileAccess.ReadWrite, FileShare.Read);
+        var metadataLength = AgentBootstrapMarker.Length + sizeof(int);
+        if (stream.Length < metadataLength)
+        {
+            return;
+        }
+
+        stream.Seek(-sizeof(int), SeekOrigin.End);
+        var lengthBuffer = new byte[sizeof(int)];
+        if (stream.Read(lengthBuffer, 0, lengthBuffer.Length) != lengthBuffer.Length)
+        {
+            return;
+        }
+
+        var payloadLength = BitConverter.ToInt32(lengthBuffer, 0);
+        if (payloadLength <= 0)
+        {
+            return;
+        }
+
+        var trailerLength = payloadLength + AgentBootstrapMarker.Length + sizeof(int);
+        if (stream.Length < trailerLength)
+        {
+            return;
+        }
+
+        stream.Seek(-(AgentBootstrapMarker.Length + sizeof(int)), SeekOrigin.End);
+        var markerBuffer = new byte[AgentBootstrapMarker.Length];
+        if (stream.Read(markerBuffer, 0, markerBuffer.Length) != markerBuffer.Length ||
+            !markerBuffer.AsSpan().SequenceEqual(AgentBootstrapMarker))
+        {
+            return;
+        }
+
+        stream.SetLength(stream.Length - trailerLength);
     }
 
     private static void UpdateJsonFile(string path, Action<JsonObject> mutate)
@@ -312,4 +498,6 @@ internal static class Program
 
         return Path.Combine(Path.GetTempPath(), LogFileName);
     }
+
+    private sealed record AgentBootstrapConfig(string ServerBaseUrl);
 }

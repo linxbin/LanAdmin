@@ -19,6 +19,10 @@ Current installer shape:
 * `LanAdminServerSetup.exe`: installs `Server` and bundled `Console`
 * `LanAgentSetup.exe`: installs `LanAgent`
 
+After `LanAdminServerSetup.exe` finishes, it also exports a configured agent package under the server install directory:
+
+* `C:\Program Files\LanAdmin\agent-package\LanAgentSetup.exe`
+
 `Server` and `Agent` packaging are independent. `LanAgent` uses the packaged `Bootstrap:ServerBaseUrl` directly. There is no UDP discovery and no `runtime.json` cache.
 
 ## Publish
@@ -57,6 +61,8 @@ Build the server installer:
   -ServerBaseUrl "http://192.168.1.10:5000"
 ```
 
+This command now also builds a generic `LanAgentSetup.exe` first so the server installer can export a configured agent package after installation.
+
 Build the agent installer:
 
 ```powershell
@@ -82,9 +88,9 @@ Current defaults:
 
 1. Build `LanAdminServerSetup.exe` with the correct LAN-facing `ServerBaseUrl`.
 2. Install `LanAdminServerSetup.exe` on the server machine.
-3. Confirm the `LanAdminServer` service is running.
-4. Build `LanAgentSetup.exe` with the same `ServerBaseUrl`.
-5. Install `LanAgentSetup.exe` on endpoint machines.
+3. After setup completes, collect the generated files from `C:\Program Files\LanAdmin\agent-package`.
+4. Confirm the `LanAdminServer` service is running.
+5. Distribute the generated `LanAgentSetup.exe` to endpoint machines and run it directly.
 6. Open `LanAdmin.Console` and verify devices appear online.
 
 ## Server Install Flow
@@ -102,6 +108,7 @@ The installer then:
 
 * copies `Server`, `Console`, and `SetupWorker`
 * writes configuration into `server\appsettings.json` and `console\appsettings.json`
+* exports `agent-package\LanAgentSetup.exe` with the configured `ServerBaseUrl` embedded into the installer
 * registers or updates the `LanAdminServer` Windows Service
 * starts the `LanAdminServer` service
 
@@ -118,6 +125,8 @@ Installed subdirectories:
 ## Agent Install Flow
 
 Run `LanAgentSetup.exe` on the endpoint machine.
+
+If the installer contains an embedded bootstrap payload, it writes that `ServerBaseUrl` into the local `appsettings.json` before the service starts.
 
 The installer:
 

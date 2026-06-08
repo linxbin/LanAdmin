@@ -34,7 +34,7 @@ Source: "..\..\artifacts\setup-worker\LanAdmin.SetupWorker.exe"; DestDir: "{app}
 Source: "..\..\artifacts\setup-worker\LanAdmin.SetupWorker.exe"; DestName: "LanAdmin.SetupWorker.bootstrap.exe"; Flags: dontcopy
 
 [Run]
-Filename: "{app}\tools\LanAdmin.SetupWorker.exe"; Parameters: "configure-agent --install-dir ""{app}"" --service-name ""{#AgentServiceName}"""; StatusMsg: "Configuring LanAgent and starting service..."; Flags: waituntilterminated
+Filename: "{app}\tools\LanAdmin.SetupWorker.exe"; Parameters: "configure-agent --install-dir ""{app}"" --service-name ""{#AgentServiceName}"" --installer-path ""{srcexe}"""; StatusMsg: "Configuring LanAgent and starting service..."; Flags: waituntilterminated
 
 [UninstallRun]
 Filename: "{app}\tools\LanAdmin.SetupWorker.exe"; Parameters: "remove-service --service-name ""{#AgentServiceName}"""; Flags: waituntilterminated; RunOnceId: "LanAgentUninstall"

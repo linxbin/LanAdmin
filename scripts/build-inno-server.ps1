@@ -5,6 +5,7 @@ param(
     [string]$DatabasePath,
     [int]$OfflineThresholdSeconds = 0,
     [string]$ServerRuntimeIdentifier = "win-x64",
+    [string]$AgentRuntimeIdentifier = "win-x64",
     [string]$ConsoleRuntimeIdentifier = "win-x64",
     [string]$SetupWorkerRuntimeIdentifier = "win-x64"
 )
@@ -14,6 +15,12 @@ $commonScript = Join-Path $PSScriptRoot "Common.ps1"
 . $commonScript
 
 $iscc = Get-InnoSetupCompiler
+
+$buildAgentInstallerScript = Join-Path $PSScriptRoot "build-inno-agent.ps1"
+& $buildAgentInstallerScript `
+    -Configuration $Configuration `
+    -RuntimeIdentifier $AgentRuntimeIdentifier `
+    -SetupWorkerRuntimeIdentifier $SetupWorkerRuntimeIdentifier
 
 $publishServerScript = Join-Path $PSScriptRoot "publish-server.ps1"
 & $publishServerScript `

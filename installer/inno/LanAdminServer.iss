@@ -26,6 +26,7 @@ RestartApplications=no
 [Files]
 Source: "..\..\artifacts\server\*"; DestDir: "{app}\server"; Flags: recursesubdirs ignoreversion; Excludes: "data\lanadmin.db,logs\*"
 Source: "..\..\artifacts\console\*"; DestDir: "{app}\console"; Flags: recursesubdirs ignoreversion
+Source: "..\..\artifacts\installer\LanAgentSetup.exe"; DestDir: "{app}\tools"; Flags: ignoreversion
 Source: "..\..\artifacts\setup-worker\LanAdmin.SetupWorker.exe"; DestDir: "{app}\tools"; Flags: ignoreversion
 Source: "..\..\artifacts\setup-worker\LanAdmin.SetupWorker.exe"; DestName: "LanAdmin.SetupWorker.bootstrap.exe"; Flags: dontcopy
 
