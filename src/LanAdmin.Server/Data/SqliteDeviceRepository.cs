@@ -1,6 +1,7 @@
 using LanAdmin.Contracts;
 using Microsoft.Data.Sqlite;
 using Microsoft.Extensions.Options;
+using System.Text.Json;
 
 namespace LanAdmin.Server.Data;
 
@@ -62,6 +63,12 @@ public sealed class SqliteDeviceRepository : IDeviceRepository
                 EventType INTEGER NOT NULL,
                 Message TEXT NOT NULL,
                 OccurredAt TEXT NOT NULL
+            );
+
+            CREATE TABLE IF NOT EXISTS AppSettings (
+                Key TEXT PRIMARY KEY,
+                Value TEXT NOT NULL,
+                UpdatedAt TEXT NOT NULL
             );
             """;
 
@@ -587,6 +594,53 @@ public sealed class SqliteDeviceRepository : IDeviceRepository
 
         await transaction.CommitAsync(cancellationToken);
         return updatedCount;
+    }
+
+    public async Task<ReminderStyleDto> GetReminderStyleAsync(CancellationToken cancellationToken)
+    {
+        await using var connection = await OpenConnectionAsync(cancellationToken);
+        await using var command = connection.CreateCommand();
+        command.CommandText = "SELECT Value FROM AppSettings WHERE Key = $key;";
+        command.Parameters.AddWithValue("$key", "ReminderStyle");
+
+        var value = (string?)await command.ExecuteScalarAsync(cancellationToken);
+        if (string.IsNullOrWhiteSpace(value))
+        {
+            return ReminderStyleDefaults.CreateDefault();
+        }
+
+        try
+        {
+            return JsonSerializer.Deserialize<ReminderStyleDto>(value, JsonDefaults.Options)
+                   ?? ReminderStyleDefaults.CreateDefault();
+        }
+        catch (JsonException)
+        {
+            return ReminderStyleDefaults.CreateDefault();
+        }
+    }
+
+    public async Task<ReminderStyleDto> SetReminderStyleAsync(ReminderStyleDto style, CancellationToken cancellationToken)
+    {
+        style.UpdatedAt = DateTimeOffset.UtcNow;
+        var json = JsonSerializer.Serialize(style, JsonDefaults.Options);
+
+        await using var connection = await OpenConnectionAsync(cancellationToken);
+        await using var command = connection.CreateCommand();
+        command.CommandText =
+            """
+            INSERT INTO AppSettings (Key, Value, UpdatedAt)
+            VALUES ($key, $value, $updatedAt)
+            ON CONFLICT(Key) DO UPDATE SET
+                Value = excluded.Value,
+                UpdatedAt = excluded.UpdatedAt;
+            """;
+        command.Parameters.AddWithValue("$key", "ReminderStyle");
+        command.Parameters.AddWithValue("$value", json);
+        command.Parameters.AddWithValue("$updatedAt", style.UpdatedAt.ToString("O"));
+        await command.ExecuteNonQueryAsync(cancellationToken);
+
+        return style;
     }
 
     public async Task AddDeviceEventAsync(string agentId, DeviceEventType eventType, string message, CancellationToken cancellationToken)

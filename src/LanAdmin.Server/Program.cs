@@ -38,6 +38,77 @@ using (var scope = app.Services.CreateScope())
     await repository.InitializeAsync();
 }
 
+app.MapGet("/api/reminder-style", async (IDeviceRepository repository, CancellationToken cancellationToken) =>
+{
+    var style = await repository.GetReminderStyleAsync(cancellationToken);
+    return Results.Ok(style);
+});
+
+app.MapPut("/api/reminder-style", async (ReminderStyleDto request, IDeviceRepository repository, CancellationToken cancellationToken) =>
+{
+    if (!ReminderStyleValidator.TryNormalize(request, out var style, out var errorMessage))
+    {
+        return Results.BadRequest(errorMessage);
+    }
+
+    var saved = await repository.SetReminderStyleAsync(style, cancellationToken);
+    return Results.Ok(saved);
+});
+
+app.MapGet("/api/reminder-style/background", () =>
+{
+    var imagePath = GetReminderBackgroundImagePath();
+    return File.Exists(imagePath)
+        ? Results.File(imagePath, "application/octet-stream")
+        : Results.NotFound();
+});
+
+app.MapPost("/api/reminder-style/background", async (HttpRequest request, CancellationToken cancellationToken) =>
+{
+    const long maxImageBytes = 2 * 1024 * 1024;
+
+    try
+    {
+        using var buffer = new MemoryStream();
+        await CopyBoundedAsync(request.Body, buffer, maxImageBytes, cancellationToken);
+        if (buffer.Length == 0)
+        {
+            return Results.BadRequest("Background image is required.");
+        }
+
+        if (!IsSupportedImage(buffer.ToArray()))
+        {
+            return Results.BadRequest("Background image must be a valid PNG, JPG, GIF, or BMP file.");
+        }
+
+        var imagePath = GetReminderBackgroundImagePath();
+        var directory = Path.GetDirectoryName(imagePath);
+        if (!string.IsNullOrWhiteSpace(directory))
+        {
+            Directory.CreateDirectory(directory);
+        }
+
+        var tempPath = imagePath + ".tmp";
+        await File.WriteAllBytesAsync(tempPath, buffer.ToArray(), cancellationToken);
+
+        if (File.Exists(imagePath))
+        {
+            File.Replace(tempPath, imagePath, destinationBackupFileName: null, ignoreMetadataErrors: true);
+        }
+        else
+        {
+            File.Move(tempPath, imagePath);
+        }
+
+        var url = $"/api/reminder-style/background?v={DateTimeOffset.UtcNow.ToUnixTimeSeconds()}";
+        return Results.Ok(new ReminderBackgroundImageUploadResult(url));
+    }
+    catch (IOException ex)
+    {
+        return Results.BadRequest(ex.Message);
+    }
+});
+
 app.MapGet("/api/devices", async (string? search, IDeviceRepository repository, CancellationToken cancellationToken) =>
 {
     var devices = await repository.GetDevicesAsync(search, cancellationToken);
@@ -341,10 +412,12 @@ static async Task SendAgentConfigurationAsync(WebSocket webSocket, IDeviceReposi
         return;
     }
 
+    var reminderStyle = await repository.GetReminderStyleAsync(cancellationToken);
     var payload = new AgentConfigurationMessage(
         agentId,
         shutdownThresholdDays.Value,
-        DateTimeOffset.UtcNow);
+        DateTimeOffset.UtcNow,
+        reminderStyle);
 
     await SendSocketEnvelopeAsync(webSocket, ServerMessageTypes.Configuration, payload, cancellationToken);
 }
@@ -378,4 +451,69 @@ static async Task<string?> ReceiveMessageAsync(WebSocket webSocket, byte[] buffe
             return Encoding.UTF8.GetString(stream.ToArray());
         }
     }
+}
+
+static string GetReminderBackgroundImagePath()
+{
+    return Path.Combine(AppContext.BaseDirectory, "reminder-assets", "reminder-background.img");
+}
+
+static async Task CopyBoundedAsync(Stream source, Stream destination, long maxBytes, CancellationToken cancellationToken)
+{
+    var buffer = new byte[81920];
+    long total = 0;
+
+    while (true)
+    {
+        var read = await source.ReadAsync(buffer.AsMemory(0, buffer.Length), cancellationToken);
+        if (read == 0)
+        {
+            return;
+        }
+
+        total += read;
+        if (total > maxBytes)
+        {
+            throw new IOException($"Image exceeds the maximum allowed size of {maxBytes} bytes.");
+        }
+
+        await destination.WriteAsync(buffer.AsMemory(0, read), cancellationToken);
+    }
+}
+
+static bool IsSupportedImage(byte[] bytes)
+{
+    if (bytes.Length >= 8 &&
+        bytes[0] == 0x89 &&
+        bytes[1] == 0x50 &&
+        bytes[2] == 0x4E &&
+        bytes[3] == 0x47 &&
+        bytes[4] == 0x0D &&
+        bytes[5] == 0x0A &&
+        bytes[6] == 0x1A &&
+        bytes[7] == 0x0A)
+    {
+        return true;
+    }
+
+    if (bytes.Length >= 3 &&
+        bytes[0] == 0xFF &&
+        bytes[1] == 0xD8 &&
+        bytes[2] == 0xFF)
+    {
+        return true;
+    }
+
+    if (bytes.Length >= 6 &&
+        bytes[0] == 0x47 &&
+        bytes[1] == 0x49 &&
+        bytes[2] == 0x46 &&
+        bytes[3] == 0x38 &&
+        (bytes[4] == 0x37 || bytes[4] == 0x39) &&
+        bytes[5] == 0x61)
+    {
+        return true;
+    }
+
+    return bytes.Length >= 2 && bytes[0] == 0x42 && bytes[1] == 0x4D;
 }

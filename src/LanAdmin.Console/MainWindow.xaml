@@ -269,6 +269,243 @@
                         </StackPanel>
                     </GroupBox>
 
+                    <GroupBox Margin="0,0,0,12"
+                              Header="弹窗样式">
+                        <StackPanel Margin="8">
+                            <TextBlock Margin="0,0,0,6" Text="标题" />
+                            <TextBox x:Name="ReminderTitleTextBox" Margin="0,0,0,8" />
+
+                            <TextBlock Margin="0,0,0,6" Text="内容模板" />
+                            <TextBox x:Name="ReminderContentTextBox"
+                                     Height="64"
+                                     Margin="0,0,0,8"
+                                     AcceptsReturn="True"
+                                     TextWrapping="Wrap"
+                                     VerticalScrollBarVisibility="Auto" />
+
+                            <UniformGrid Columns="2" Margin="0,0,0,8">
+                                <StackPanel Margin="0,0,6,0">
+                                    <TextBlock Margin="0,0,0,4" Text="按钮文字" />
+                                    <TextBox x:Name="ReminderButtonTextBox" />
+                                </StackPanel>
+                                <StackPanel Margin="6,0,0,0">
+                                    <TextBlock Margin="0,0,0,4" Text="弹窗位置" />
+                                    <ComboBox x:Name="ReminderPositionComboBox">
+                                        <ComboBoxItem Content="右下角" Tag="BottomRight" />
+                                        <ComboBoxItem Content="左下角" Tag="BottomLeft" />
+                                        <ComboBoxItem Content="右上角" Tag="TopRight" />
+                                        <ComboBoxItem Content="左上角" Tag="TopLeft" />
+                                        <ComboBoxItem Content="居中" Tag="Center" />
+                                    </ComboBox>
+                                </StackPanel>
+                            </UniformGrid>
+
+                            <UniformGrid Columns="4" Margin="0,0,0,8">
+                                <StackPanel Margin="0,0,6,0">
+                                    <TextBlock Margin="0,0,0,4" Text="宽" />
+                                    <TextBox x:Name="ReminderWidthTextBox" />
+                                </StackPanel>
+                                <StackPanel Margin="6,0,6,0">
+                                    <TextBlock Margin="0,0,0,4" Text="高" />
+                                    <TextBox x:Name="ReminderHeightTextBox" />
+                                </StackPanel>
+                                <StackPanel Margin="6,0,6,0">
+                                    <TextBlock Margin="0,0,0,4" Text="圆角" />
+                                    <TextBox x:Name="ReminderCornerRadiusTextBox" />
+                                </StackPanel>
+                                <StackPanel Margin="6,0,0,0">
+                                    <TextBlock Margin="0,0,0,4" Text="边框" />
+                                    <TextBox x:Name="ReminderBorderWidthTextBox" />
+                                </StackPanel>
+                            </UniformGrid>
+
+                            <UniformGrid Columns="3" Margin="0,0,0,8">
+                                <StackPanel Margin="0,0,6,0">
+                                    <TextBlock Margin="0,0,0,4" Text="背景色" />
+                                    <TextBox x:Name="ReminderBackgroundColorTextBox" />
+                                </StackPanel>
+                                <StackPanel Margin="6,0,6,0">
+                                    <TextBlock Margin="0,0,0,4" Text="边框色" />
+                                    <TextBox x:Name="ReminderBorderColorTextBox" />
+                                </StackPanel>
+                                <StackPanel Margin="6,0,0,0">
+                                    <TextBlock Margin="0,0,0,4" Text="按钮色" />
+                                    <TextBox x:Name="ReminderButtonBackgroundColorTextBox" />
+                                </StackPanel>
+                            </UniformGrid>
+
+                            <TextBlock Margin="0,0,0,6" Text="背景图片 URL" />
+                            <DockPanel Margin="0,0,0,8">
+                                <Button Width="80"
+                                        Margin="8,0,0,0"
+                                        DockPanel.Dock="Right"
+                                        Click="UploadReminderBackgroundImageButton_Click"
+                                        Content="上传" />
+                                <TextBox x:Name="ReminderBackgroundImageUrlTextBox" />
+                            </DockPanel>
+
+                            <UniformGrid Columns="3" Margin="0,0,0,8">
+                                <StackPanel Margin="0,0,6,0">
+                                    <TextBlock Margin="0,0,0,4" Text="图片布局" />
+                                    <ComboBox x:Name="ReminderBackgroundImageLayoutComboBox">
+                                        <ComboBoxItem Content="等比缩放" Tag="Zoom" />
+                                        <ComboBoxItem Content="拉伸填充" Tag="Stretch" />
+                                        <ComboBoxItem Content="居中" Tag="Center" />
+                                        <ComboBoxItem Content="平铺" Tag="Tile" />
+                                        <ComboBoxItem Content="原始尺寸" Tag="None" />
+                                    </ComboBox>
+                                </StackPanel>
+                                <StackPanel Margin="6,0,6,0">
+                                    <TextBlock Margin="0,0,0,4" Text="图标" />
+                                    <ComboBox x:Name="ReminderIconTypeComboBox">
+                                        <ComboBoxItem Content="警告" Tag="Warning" />
+                                        <ComboBoxItem Content="信息" Tag="Information" />
+                                        <ComboBoxItem Content="错误" Tag="Error" />
+                                        <ComboBoxItem Content="成功" Tag="Success" />
+                                        <ComboBoxItem Content="不显示" Tag="None" />
+                                    </ComboBox>
+                                </StackPanel>
+                                <StackPanel Margin="6,0,0,0">
+                                    <TextBlock Margin="0,0,0,4" Text="置顶" />
+                                    <CheckBox x:Name="ReminderTopMostCheckBox"
+                                              VerticalAlignment="Center"
+                                              Content="弹窗置顶" />
+                                </StackPanel>
+                            </UniformGrid>
+
+                            <UniformGrid Columns="3" Margin="0,0,0,8">
+                                <StackPanel Margin="0,0,6,0">
+                                    <TextBlock Margin="0,0,0,4" Text="标题字号" />
+                                    <TextBox x:Name="ReminderTitleFontSizeTextBox" />
+                                </StackPanel>
+                                <StackPanel Margin="6,0,6,0">
+                                    <TextBlock Margin="0,0,0,4" Text="标题样式" />
+                                    <ComboBox x:Name="ReminderTitleFontStyleComboBox">
+                                        <ComboBoxItem Content="常规" Tag="Regular" />
+                                        <ComboBoxItem Content="加粗" Tag="Bold" />
+                                        <ComboBoxItem Content="斜体" Tag="Italic" />
+                                        <ComboBoxItem Content="加粗斜体" Tag="BoldItalic" />
+                                    </ComboBox>
+                                </StackPanel>
+                                <StackPanel Margin="6,0,0,0">
+                                    <TextBlock Margin="0,0,0,4" Text="标题颜色" />
+                                    <TextBox x:Name="ReminderTitleColorTextBox" />
+                                </StackPanel>
+                            </UniformGrid>
+
+                            <UniformGrid Columns="3" Margin="0,0,0,8">
+                                <StackPanel Margin="0,0,6,0">
+                                    <TextBlock Margin="0,0,0,4" Text="正文字号" />
+                                    <TextBox x:Name="ReminderContentFontSizeTextBox" />
+                                </StackPanel>
+                                <StackPanel Margin="6,0,6,0">
+                                    <TextBlock Margin="0,0,0,4" Text="正文样式" />
+                                    <ComboBox x:Name="ReminderContentFontStyleComboBox">
+                                        <ComboBoxItem Content="常规" Tag="Regular" />
+                                        <ComboBoxItem Content="加粗" Tag="Bold" />
+                                        <ComboBoxItem Content="斜体" Tag="Italic" />
+                                        <ComboBoxItem Content="加粗斜体" Tag="BoldItalic" />
+                                    </ComboBox>
+                                </StackPanel>
+                                <StackPanel Margin="6,0,0,0">
+                                    <TextBlock Margin="0,0,0,4" Text="正文颜色" />
+                                    <TextBox x:Name="ReminderContentColorTextBox" />
+                                </StackPanel>
+                            </UniformGrid>
+
+                            <UniformGrid Columns="3" Margin="0,0,0,8">
+                                <StackPanel Margin="0,0,6,0">
+                                    <TextBlock Margin="0,0,0,4" Text="按钮字号" />
+                                    <TextBox x:Name="ReminderButtonFontSizeTextBox" />
+                                </StackPanel>
+                                <StackPanel Margin="6,0,6,0">
+                                    <TextBlock Margin="0,0,0,4" Text="按钮样式" />
+                                    <ComboBox x:Name="ReminderButtonFontStyleComboBox">
+                                        <ComboBoxItem Content="常规" Tag="Regular" />
+                                        <ComboBoxItem Content="加粗" Tag="Bold" />
+                                        <ComboBoxItem Content="斜体" Tag="Italic" />
+                                        <ComboBoxItem Content="加粗斜体" Tag="BoldItalic" />
+                                    </ComboBox>
+                                </StackPanel>
+                                <StackPanel Margin="6,0,0,0">
+                                    <TextBlock Margin="0,0,0,4" Text="按钮文字色" />
+                                    <TextBox x:Name="ReminderButtonTextColorTextBox" />
+                                </StackPanel>
+                            </UniformGrid>
+
+                            <TextBlock Margin="0,0,0,6" Text="预览" />
+                            <Border Padding="8"
+                                    Margin="0,0,0,8"
+                                    Background="#F3F4F6"
+                                    BorderBrush="#E5E7EB"
+                                    BorderThickness="1">
+                                <Viewbox MaxHeight="240"
+                                         HorizontalAlignment="Left"
+                                         Stretch="Uniform">
+                                    <Border x:Name="ReminderPreviewBorder"
+                                            Width="420"
+                                            Height="220"
+                                            Padding="18"
+                                            Background="#FFFFFF"
+                                            BorderBrush="#DC2626"
+                                            BorderThickness="2">
+                                        <Grid>
+                                            <Grid.ColumnDefinitions>
+                                                <ColumnDefinition x:Name="ReminderPreviewIconColumn" Width="52" />
+                                                <ColumnDefinition Width="*" />
+                                            </Grid.ColumnDefinitions>
+                                            <TextBlock x:Name="ReminderPreviewIconTextBlock"
+                                                       Grid.Column="0"
+                                                       Margin="0,0,12,0"
+                                                       FontSize="34"
+                                                       Text="⚠" />
+                                            <Grid Grid.Column="1">
+                                                <Grid.RowDefinitions>
+                                                    <RowDefinition Height="Auto" />
+                                                    <RowDefinition Height="*" />
+                                                    <RowDefinition Height="Auto" />
+                                                </Grid.RowDefinitions>
+                                                <TextBlock x:Name="ReminderPreviewTitleTextBlock"
+                                                           Grid.Row="0"
+                                                           TextWrapping="Wrap"
+                                                           TextTrimming="CharacterEllipsis" />
+                                                <TextBlock x:Name="ReminderPreviewContentTextBlock"
+                                                           Grid.Row="1"
+                                                           Margin="0,8,0,8"
+                                                           TextWrapping="Wrap"
+                                                           TextTrimming="CharacterEllipsis" />
+                                                <Button x:Name="ReminderPreviewButton"
+                                                        Grid.Row="2"
+                                                        Width="120"
+                                                        Height="36"
+                                                        HorizontalAlignment="Center"
+                                                        IsHitTestVisible="False" />
+                                            </Grid>
+                                        </Grid>
+                                    </Border>
+                                </Viewbox>
+                            </Border>
+
+                            <StackPanel Orientation="Horizontal">
+                                <Button Width="120"
+                                        Margin="0,0,8,0"
+                                        Click="SaveReminderStyleButton_Click"
+                                        Content="保存弹窗样式" />
+                                <Button Width="120"
+                                        Margin="0,0,8,0"
+                                        Click="PreviewReminderStyleButton_Click"
+                                        Content="预览" />
+                                <Button Width="120"
+                                        Margin="0,0,8,0"
+                                        Click="ReloadReminderStyleButton_Click"
+                                        Content="重新加载" />
+                                <Button Width="120"
+                                        Click="ResetReminderStyleButton_Click"
+                                        Content="恢复默认" />
+                            </StackPanel>
+                        </StackPanel>
+                    </GroupBox>
+
                     <GroupBox Header="设备事件记录">
                         <DataGrid x:Name="EventsDataGrid"
                                   Height="280"

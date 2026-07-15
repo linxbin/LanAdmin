@@ -68,7 +68,7 @@ public sealed class Worker : BackgroundService
                 _logger.LogInformation("Connected to {ServerUrl}", runtimeState.ServerUrl);
                 retryIndex = 0;
 
-                var receiveTask = ProcessServerMessagesAsync(socket, stoppingToken);
+                var receiveTask = ProcessServerMessagesAsync(socket, runtimeState.ServerBaseUrl, stoppingToken);
 
                 var registrationSnapshot = DeviceSnapshot.Capture();
                 UpdateNotifierState(registrationSnapshot);
@@ -124,7 +124,7 @@ public sealed class Worker : BackgroundService
             DateTimeOffset.UtcNow);
     }
 
-    private async Task ProcessServerMessagesAsync(ClientWebSocket socket, CancellationToken cancellationToken)
+    private async Task ProcessServerMessagesAsync(ClientWebSocket socket, string serverBaseUrl, CancellationToken cancellationToken)
     {
         while (socket.State == WebSocketState.Open && !cancellationToken.IsCancellationRequested)
         {
@@ -154,6 +154,11 @@ public sealed class Worker : BackgroundService
                         }
 
                         _shutdownThresholdDays = configuration.ShutdownThresholdDays;
+                        if (configuration.ReminderStyle is not null)
+                        {
+                            await UpdateReminderStyleAsync(configuration.ReminderStyle, serverBaseUrl, cancellationToken);
+                        }
+
                         UpdateNotifierState(DeviceSnapshot.Capture());
                         break;
                     }
@@ -222,6 +227,16 @@ public sealed class Worker : BackgroundService
             snapshot.UptimeSeconds,
             _shutdownThresholdDays,
             DateTimeOffset.UtcNow));
+    }
+
+    private async Task UpdateReminderStyleAsync(ReminderStyleDto style, string serverBaseUrl, CancellationToken cancellationToken)
+    {
+        var backgroundImagePath = await AgentReminderBackgroundImageCache.RefreshAsync(
+            style,
+            serverBaseUrl,
+            _logger,
+            cancellationToken);
+        AgentReminderStyleStore.Save(style, backgroundImagePath);
     }
 
     private void TriggerManualShutdownReminder(ManualShutdownReminderMessage reminder)

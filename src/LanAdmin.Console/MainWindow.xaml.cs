@@ -1,11 +1,15 @@
 using System.Collections.ObjectModel;
 using System.ComponentModel;
+using System.Globalization;
 using System.Runtime.CompilerServices;
 using System.Windows;
 using System.Windows.Controls;
+using System.Windows.Media;
+using System.Windows.Media.Imaging;
 using System.Windows.Threading;
 using LanAdmin.Console.Services;
 using LanAdmin.Contracts;
+using Microsoft.Win32;
 using MessageBox = System.Windows.MessageBox;
 
 namespace LanAdmin.Console;
@@ -50,6 +54,7 @@ public partial class MainWindow : Window
         Loaded += async (_, _) =>
         {
             _refreshTimer.Start();
+            await RefreshReminderStyleAsync();
             await RefreshAsync();
         };
     }
@@ -631,6 +636,361 @@ public partial class MainWindow : Window
     {
         ShutdownThresholdTextBox.Text = ShutdownThresholdDefaults.DefaultDays.ToString();
         SetShutdownThresholdButton_Click(sender, e);
+    }
+
+    private async Task RefreshReminderStyleAsync()
+    {
+        try
+        {
+            var style = await _apiClient.GetReminderStyleAsync();
+            ApplyReminderStyleToControls(style);
+        }
+        catch (Exception ex)
+        {
+            StatusTextBlock.Text = $"加载弹窗样式失败: {ex.Message}";
+        }
+    }
+
+    private async void SaveReminderStyleButton_Click(object sender, RoutedEventArgs e)
+    {
+        if (!TryBuildReminderStyleFromControls(out var style))
+        {
+            return;
+        }
+
+        try
+        {
+            var saved = await _apiClient.SaveReminderStyleAsync(style!);
+            ApplyReminderStyleToControls(saved);
+            StatusTextBlock.Text = $"弹窗样式已保存 {DateTime.Now:HH:mm:ss}";
+            MessageBox.Show(this, "弹窗样式已保存，在线 Agent 会在下一次配置同步后使用新样式。", "提示", MessageBoxButton.OK, MessageBoxImage.Information);
+        }
+        catch (Exception ex)
+        {
+            MessageBox.Show(this, ex.Message, "保存弹窗样式失败", MessageBoxButton.OK, MessageBoxImage.Error);
+        }
+    }
+
+    private async void ReloadReminderStyleButton_Click(object sender, RoutedEventArgs e)
+    {
+        await RefreshReminderStyleAsync();
+    }
+
+    private void PreviewReminderStyleButton_Click(object sender, RoutedEventArgs e)
+    {
+        if (TryBuildReminderStyleFromControls(out var style))
+        {
+            RenderReminderStylePreview(style!);
+        }
+    }
+
+    private async void UploadReminderBackgroundImageButton_Click(object sender, RoutedEventArgs e)
+    {
+        var dialog = new OpenFileDialog
+        {
+            Filter = "图片文件|*.png;*.jpg;*.jpeg;*.bmp;*.gif|所有文件|*.*",
+            CheckFileExists = true,
+            Multiselect = false
+        };
+
+        if (dialog.ShowDialog(this) != true)
+        {
+            return;
+        }
+
+        try
+        {
+            var result = await _apiClient.UploadReminderBackgroundImageAsync(dialog.FileName);
+            if (string.IsNullOrWhiteSpace(result.Url))
+            {
+                MessageBox.Show(this, "背景图片上传成功，但服务端没有返回图片地址。", "提示", MessageBoxButton.OK, MessageBoxImage.Information);
+                return;
+            }
+
+            ReminderBackgroundImageUrlTextBox.Text = result.Url;
+            StatusTextBlock.Text = $"背景图片已上传 {DateTime.Now:HH:mm:ss}";
+            MessageBox.Show(this, "背景图片已上传，请保存弹窗样式后下发给 Agent。", "提示", MessageBoxButton.OK, MessageBoxImage.Information);
+        }
+        catch (Exception ex)
+        {
+            MessageBox.Show(this, ex.Message, "上传背景图片失败", MessageBoxButton.OK, MessageBoxImage.Error);
+        }
+    }
+
+    private void ResetReminderStyleButton_Click(object sender, RoutedEventArgs e)
+    {
+        ApplyReminderStyleToControls(ReminderStyleDefaults.CreateDefault());
+    }
+
+    private void ApplyReminderStyleToControls(ReminderStyleDto style)
+    {
+        ReminderTitleTextBox.Text = style.Title;
+        ReminderContentTextBox.Text = style.ContentTemplate;
+        ReminderButtonTextBox.Text = style.ButtonText;
+        ReminderWidthTextBox.Text = style.Width.ToString(CultureInfo.InvariantCulture);
+        ReminderHeightTextBox.Text = style.Height.ToString(CultureInfo.InvariantCulture);
+        ReminderCornerRadiusTextBox.Text = style.CornerRadius.ToString(CultureInfo.InvariantCulture);
+        ReminderBorderWidthTextBox.Text = style.BorderWidth.ToString(CultureInfo.InvariantCulture);
+        ReminderBackgroundColorTextBox.Text = style.BackgroundColor;
+        ReminderBorderColorTextBox.Text = style.BorderColor;
+        ReminderButtonBackgroundColorTextBox.Text = style.ButtonBackgroundColor;
+        ReminderBackgroundImageUrlTextBox.Text = style.BackgroundImageUrl;
+        ReminderTopMostCheckBox.IsChecked = style.TopMost;
+        ReminderTitleFontSizeTextBox.Text = style.TitleFontSize.ToString(CultureInfo.InvariantCulture);
+        ReminderTitleColorTextBox.Text = style.TitleColor;
+        ReminderContentFontSizeTextBox.Text = style.ContentFontSize.ToString(CultureInfo.InvariantCulture);
+        ReminderContentColorTextBox.Text = style.ContentColor;
+        ReminderButtonFontSizeTextBox.Text = style.ButtonFontSize.ToString(CultureInfo.InvariantCulture);
+        ReminderButtonTextColorTextBox.Text = style.ButtonTextColor;
+
+        SetComboBoxValue(ReminderPositionComboBox, style.Position);
+        SetComboBoxValue(ReminderBackgroundImageLayoutComboBox, style.BackgroundImageLayout);
+        SetComboBoxValue(ReminderIconTypeComboBox, style.IconType);
+        SetComboBoxValue(ReminderTitleFontStyleComboBox, style.TitleFontStyle);
+        SetComboBoxValue(ReminderContentFontStyleComboBox, style.ContentFontStyle);
+        SetComboBoxValue(ReminderButtonFontStyleComboBox, style.ButtonFontStyle);
+        RenderReminderStylePreview(style);
+    }
+
+    private bool TryBuildReminderStyleFromControls(out ReminderStyleDto? style)
+    {
+        style = null;
+
+        if (!TryParseInt(ReminderWidthTextBox.Text, ReminderStyleDefaults.MinWidth, ReminderStyleDefaults.MaxWidth, "宽度", out var width) ||
+            !TryParseInt(ReminderHeightTextBox.Text, ReminderStyleDefaults.MinHeight, ReminderStyleDefaults.MaxHeight, "高度", out var height) ||
+            !TryParseInt(ReminderCornerRadiusTextBox.Text, ReminderStyleDefaults.MinCornerRadius, ReminderStyleDefaults.MaxCornerRadius, "圆角", out var cornerRadius) ||
+            !TryParseInt(ReminderBorderWidthTextBox.Text, ReminderStyleDefaults.MinBorderWidth, ReminderStyleDefaults.MaxBorderWidth, "边框宽度", out var borderWidth) ||
+            !TryParseDouble(ReminderTitleFontSizeTextBox.Text, ReminderStyleDefaults.MinFontSize, ReminderStyleDefaults.MaxFontSize, "标题字号", out var titleFontSize) ||
+            !TryParseDouble(ReminderContentFontSizeTextBox.Text, ReminderStyleDefaults.MinFontSize, ReminderStyleDefaults.MaxFontSize, "正文字号", out var contentFontSize) ||
+            !TryParseDouble(ReminderButtonFontSizeTextBox.Text, ReminderStyleDefaults.MinFontSize, ReminderStyleDefaults.MaxFontSize, "按钮字号", out var buttonFontSize))
+        {
+            return false;
+        }
+
+        style = ReminderStyleDefaults.CreateDefault();
+        style.Title = ReminderTitleTextBox.Text.Trim();
+        style.ContentTemplate = ReminderContentTextBox.Text.Trim();
+        style.ButtonText = ReminderButtonTextBox.Text.Trim();
+        style.Width = width;
+        style.Height = height;
+        style.Position = GetComboBoxValue(ReminderPositionComboBox, "BottomRight");
+        style.CornerRadius = cornerRadius;
+        style.BorderWidth = borderWidth;
+        style.BorderColor = ReminderBorderColorTextBox.Text.Trim();
+        style.BackgroundColor = ReminderBackgroundColorTextBox.Text.Trim();
+        style.BackgroundImageUrl = ReminderBackgroundImageUrlTextBox.Text.Trim();
+        style.BackgroundImageLayout = GetComboBoxValue(ReminderBackgroundImageLayoutComboBox, "Zoom");
+        style.IconType = GetComboBoxValue(ReminderIconTypeComboBox, "Warning");
+        style.TitleFontSize = titleFontSize;
+        style.TitleFontStyle = GetComboBoxValue(ReminderTitleFontStyleComboBox, "Bold");
+        style.TitleColor = ReminderTitleColorTextBox.Text.Trim();
+        style.ContentFontSize = contentFontSize;
+        style.ContentFontStyle = GetComboBoxValue(ReminderContentFontStyleComboBox, "Regular");
+        style.ContentColor = ReminderContentColorTextBox.Text.Trim();
+        style.ButtonFontSize = buttonFontSize;
+        style.ButtonFontStyle = GetComboBoxValue(ReminderButtonFontStyleComboBox, "Bold");
+        style.ButtonTextColor = ReminderButtonTextColorTextBox.Text.Trim();
+        style.ButtonBackgroundColor = ReminderButtonBackgroundColorTextBox.Text.Trim();
+        style.TopMost = ReminderTopMostCheckBox.IsChecked == true;
+        return true;
+    }
+
+    private static bool TryParseInt(string rawValue, int min, int max, string displayName, out int value)
+    {
+        if (!int.TryParse(rawValue.Trim(), NumberStyles.Integer, CultureInfo.InvariantCulture, out value) ||
+            value < min ||
+            value > max)
+        {
+            MessageBox.Show($"{displayName}必须在 {min} 到 {max} 之间。", "提示", MessageBoxButton.OK, MessageBoxImage.Information);
+            return false;
+        }
+
+        return true;
+    }
+
+    private static bool TryParseDouble(string rawValue, double min, double max, string displayName, out double value)
+    {
+        if (!double.TryParse(rawValue.Trim(), NumberStyles.Float, CultureInfo.InvariantCulture, out value) ||
+            value < min ||
+            value > max)
+        {
+            MessageBox.Show($"{displayName}必须在 {min.ToString(CultureInfo.InvariantCulture)} 到 {max.ToString(CultureInfo.InvariantCulture)} 之间。", "提示", MessageBoxButton.OK, MessageBoxImage.Information);
+            return false;
+        }
+
+        return true;
+    }
+
+    private static void SetComboBoxValue(ComboBox comboBox, string value)
+    {
+        foreach (var item in comboBox.Items.OfType<ComboBoxItem>())
+        {
+            var itemValue = item.Tag?.ToString() ?? item.Content?.ToString();
+            if (string.Equals(itemValue, value, StringComparison.OrdinalIgnoreCase))
+            {
+                comboBox.SelectedItem = item;
+                return;
+            }
+        }
+
+        comboBox.SelectedIndex = 0;
+    }
+
+    private static string GetComboBoxValue(ComboBox comboBox, string fallback)
+    {
+        return comboBox.SelectedItem is ComboBoxItem item
+            ? item.Tag?.ToString() ?? item.Content?.ToString() ?? fallback
+            : fallback;
+    }
+
+    private void RenderReminderStylePreview(ReminderStyleDto style)
+    {
+        ReminderPreviewBorder.Width = style.Width;
+        ReminderPreviewBorder.Height = style.Height;
+        ReminderPreviewBorder.CornerRadius = new CornerRadius(style.CornerRadius);
+        ReminderPreviewBorder.BorderThickness = new Thickness(style.BorderWidth);
+        ReminderPreviewBorder.BorderBrush = ParseBrush(style.BorderColor, "#DC2626");
+        ReminderPreviewBorder.Background = CreatePreviewBackground(style);
+        RenderPreviewIcon(style);
+
+        ReminderPreviewTitleTextBlock.Text = style.Title;
+        ReminderPreviewTitleTextBlock.FontFamily = new FontFamily(style.TitleFontFamily);
+        ReminderPreviewTitleTextBlock.FontSize = style.TitleFontSize;
+        ApplyTextBlockFontStyle(ReminderPreviewTitleTextBlock, style.TitleFontStyle);
+        ReminderPreviewTitleTextBlock.Foreground = ParseBrush(style.TitleColor, "#B91C1C");
+
+        ReminderPreviewContentTextBlock.Text = BuildPreviewContent(style.ContentTemplate);
+        ReminderPreviewContentTextBlock.FontFamily = new FontFamily(style.ContentFontFamily);
+        ReminderPreviewContentTextBlock.FontSize = style.ContentFontSize;
+        ApplyTextBlockFontStyle(ReminderPreviewContentTextBlock, style.ContentFontStyle);
+        ReminderPreviewContentTextBlock.Foreground = ParseBrush(style.ContentColor, "#7F1D1D");
+
+        ReminderPreviewButton.Content = style.ButtonText;
+        ReminderPreviewButton.FontFamily = new FontFamily(style.ButtonFontFamily);
+        ReminderPreviewButton.FontSize = style.ButtonFontSize;
+        ApplyControlFontStyle(ReminderPreviewButton, style.ButtonFontStyle);
+        ReminderPreviewButton.Foreground = ParseBrush(style.ButtonTextColor, "#FFFFFF");
+        ReminderPreviewButton.Background = ParseBrush(style.ButtonBackgroundColor, "#DC2626");
+        ReminderPreviewButton.BorderBrush = ParseBrush(style.BorderColor, "#DC2626");
+    }
+
+    private void RenderPreviewIcon(ReminderStyleDto style)
+    {
+        if (string.Equals(style.IconType, "None", StringComparison.OrdinalIgnoreCase))
+        {
+            ReminderPreviewIconColumn.Width = new GridLength(0);
+            ReminderPreviewIconTextBlock.Visibility = Visibility.Collapsed;
+            return;
+        }
+
+        ReminderPreviewIconColumn.Width = new GridLength(52);
+        ReminderPreviewIconTextBlock.Visibility = Visibility.Visible;
+        ReminderPreviewIconTextBlock.Text = style.IconType.Trim().ToUpperInvariant() switch
+        {
+            "INFORMATION" => "ℹ",
+            "ERROR" => "✕",
+            "SUCCESS" => "✓",
+            _ => "⚠"
+        };
+        ReminderPreviewIconTextBlock.Foreground = ParseBrush(style.BorderColor, "#DC2626");
+    }
+
+    private Brush CreatePreviewBackground(ReminderStyleDto style)
+    {
+        var fallback = ParseBrush(style.BackgroundColor, "#FFFFFF");
+        var imageUrl = style.BackgroundImageUrl?.Trim();
+        if (string.IsNullOrWhiteSpace(imageUrl) || !TryBuildPreviewImageUri(imageUrl, out var imageUri))
+        {
+            return fallback;
+        }
+
+        try
+        {
+            var bitmap = new BitmapImage();
+            bitmap.BeginInit();
+            bitmap.UriSource = imageUri;
+            bitmap.CacheOption = BitmapCacheOption.OnLoad;
+            bitmap.EndInit();
+            bitmap.Freeze();
+
+            return new ImageBrush(bitmap)
+            {
+                Stretch = ParseStretch(style.BackgroundImageLayout),
+                TileMode = string.Equals(style.BackgroundImageLayout, "Tile", StringComparison.OrdinalIgnoreCase)
+                    ? TileMode.Tile
+                    : TileMode.None,
+                Viewport = string.Equals(style.BackgroundImageLayout, "Tile", StringComparison.OrdinalIgnoreCase)
+                    ? new Rect(0, 0, 128, 128)
+                    : new Rect(0, 0, 1, 1),
+                ViewportUnits = string.Equals(style.BackgroundImageLayout, "Tile", StringComparison.OrdinalIgnoreCase)
+                    ? BrushMappingMode.Absolute
+                    : BrushMappingMode.RelativeToBoundingBox
+            };
+        }
+        catch
+        {
+            return fallback;
+        }
+    }
+
+    private bool TryBuildPreviewImageUri(string imageUrl, out Uri imageUri)
+    {
+        if (Uri.TryCreate(imageUrl, UriKind.Absolute, out imageUri!))
+        {
+            return imageUri.Scheme is "http" or "https" or "file";
+        }
+
+        if (_apiClient.BaseAddress is null)
+        {
+            return false;
+        }
+
+        return Uri.TryCreate(_apiClient.BaseAddress, imageUrl.TrimStart('/'), out imageUri!);
+    }
+
+    private static Brush ParseBrush(string value, string fallback)
+    {
+        try
+        {
+            return new SolidColorBrush((Color)ColorConverter.ConvertFromString(value)!);
+        }
+        catch
+        {
+            return new SolidColorBrush((Color)ColorConverter.ConvertFromString(fallback)!);
+        }
+    }
+
+    private static Stretch ParseStretch(string value)
+    {
+        return value.Trim().ToUpperInvariant() switch
+        {
+            "STRETCH" => Stretch.Fill,
+            "CENTER" or "NONE" or "TILE" => Stretch.None,
+            _ => Stretch.Uniform
+        };
+    }
+
+    private static void ApplyTextBlockFontStyle(TextBlock textBlock, string value)
+    {
+        var normalized = value.Trim().ToUpperInvariant();
+        textBlock.FontWeight = normalized is "BOLD" or "BOLDITALIC" ? FontWeights.Bold : FontWeights.Normal;
+        textBlock.FontStyle = normalized is "ITALIC" or "BOLDITALIC" ? FontStyles.Italic : FontStyles.Normal;
+    }
+
+    private static void ApplyControlFontStyle(Control control, string value)
+    {
+        var normalized = value.Trim().ToUpperInvariant();
+        control.FontWeight = normalized is "BOLD" or "BOLDITALIC" ? FontWeights.Bold : FontWeights.Normal;
+        control.FontStyle = normalized is "ITALIC" or "BOLDITALIC" ? FontStyles.Italic : FontStyles.Normal;
+    }
+
+    private static string BuildPreviewContent(string template)
+    {
+        return template
+            .Replace("{uptime}", "8天 3小时 15分钟", StringComparison.OrdinalIgnoreCase)
+            .Replace("{hostName}", Environment.MachineName, StringComparison.OrdinalIgnoreCase)
+            .Replace("{currentUser}", Environment.UserName, StringComparison.OrdinalIgnoreCase)
+            .Replace("{thresholdDays}", ShutdownThresholdDefaults.DefaultDays.ToString(CultureInfo.InvariantCulture), StringComparison.OrdinalIgnoreCase);
     }
 
     private void HandleDeviceCheckedChanged(DeviceRowViewModel deviceRow)

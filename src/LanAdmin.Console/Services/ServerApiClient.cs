@@ -22,6 +22,8 @@ public sealed class ServerApiClient
         };
     }
 
+    public Uri? BaseAddress => _httpClient.BaseAddress;
+
     public async Task<IReadOnlyList<DeviceDto>> GetDevicesAsync(string? search)
     {
         var path = string.IsNullOrWhiteSpace(search)
@@ -106,6 +108,40 @@ public sealed class ServerApiClient
     {
         using var response = await _httpClient.DeleteAsync($"/api/devices/{Uri.EscapeDataString(agentId)}");
         response.EnsureSuccessStatusCode();
+    }
+
+    public async Task<ReminderStyleDto> GetReminderStyleAsync()
+    {
+        using var response = await _httpClient.GetAsync("/api/reminder-style");
+        response.EnsureSuccessStatusCode();
+
+        await using var stream = await response.Content.ReadAsStreamAsync();
+        return await JsonSerializer.DeserializeAsync<ReminderStyleDto>(stream, _jsonOptions)
+               ?? ReminderStyleDefaults.CreateDefault();
+    }
+
+    public async Task<ReminderStyleDto> SaveReminderStyleAsync(ReminderStyleDto style)
+    {
+        var payload = JsonSerializer.Serialize(style, _jsonOptions);
+        using var response = await _httpClient.PutAsync("/api/reminder-style", new StringContent(payload, Encoding.UTF8, "application/json"));
+        response.EnsureSuccessStatusCode();
+
+        await using var stream = await response.Content.ReadAsStreamAsync();
+        return await JsonSerializer.DeserializeAsync<ReminderStyleDto>(stream, _jsonOptions)
+               ?? style;
+    }
+
+    public async Task<ReminderBackgroundImageUploadResult> UploadReminderBackgroundImageAsync(string path)
+    {
+        await using var stream = File.OpenRead(path);
+        using var content = new StreamContent(stream);
+        content.Headers.ContentType = new System.Net.Http.Headers.MediaTypeHeaderValue("application/octet-stream");
+        using var response = await _httpClient.PostAsync("/api/reminder-style/background", content);
+        response.EnsureSuccessStatusCode();
+
+        await using var responseStream = await response.Content.ReadAsStreamAsync();
+        return await JsonSerializer.DeserializeAsync<ReminderBackgroundImageUploadResult>(responseStream, _jsonOptions)
+               ?? new ReminderBackgroundImageUploadResult("");
     }
 
     private async Task<IReadOnlyList<T>> GetAsync<T>(string path)

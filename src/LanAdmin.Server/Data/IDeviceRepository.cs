@@ -18,6 +18,8 @@ public interface IDeviceRepository
     Task<int?> GetShutdownThresholdDaysAsync(string agentId, CancellationToken cancellationToken);
     Task<bool> SetShutdownThresholdAsync(string agentId, int shutdownThresholdDays, CancellationToken cancellationToken);
     Task<int> SetShutdownThresholdsAsync(IReadOnlyList<string> agentIds, int shutdownThresholdDays, CancellationToken cancellationToken);
+    Task<ReminderStyleDto> GetReminderStyleAsync(CancellationToken cancellationToken);
+    Task<ReminderStyleDto> SetReminderStyleAsync(ReminderStyleDto style, CancellationToken cancellationToken);
     Task AddDeviceEventAsync(string agentId, DeviceEventType eventType, string message, CancellationToken cancellationToken);
     Task<bool> DeleteDeviceAsync(string agentId, CancellationToken cancellationToken);
     Task<int> MarkOfflineDevicesAsync(DateTimeOffset threshold, CancellationToken cancellationToken);

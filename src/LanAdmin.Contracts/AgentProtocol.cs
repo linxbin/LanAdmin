@@ -37,7 +37,8 @@ public sealed record AgentHeartbeatMessage(
 public sealed record AgentConfigurationMessage(
     string AgentId,
     int ShutdownThresholdDays,
-    DateTimeOffset ReportedAt);
+    DateTimeOffset ReportedAt,
+    ReminderStyleDto? ReminderStyle = null);
 
 public sealed record ManualShutdownReminderMessage(
     string AgentId,
